@@ -108,13 +108,11 @@ async function setupPython(platform) {
 
       // Install packages in the virtual environment
       const venvPython = path.join(pythonDir, 'venv', 'Scripts', 'python.exe');
-      const venvPip = path.join(pythonDir, 'venv', 'Scripts', 'pip.exe');
 
       console.log('Installing Python packages...');
-      await execCommand(`${venvPip} install --upgrade pip`);
-      await execCommand(`${venvPip} install robotframework==${RUNTIME_VERSIONS.robotframework}`);
-      await execCommand(`${venvPip} install notebook==${RUNTIME_VERSIONS.jupyter}`);
-
+      await execCommand(`${venvPython} -m pip install --upgrade pip`);
+      await execCommand(`${venvPython} -m pip install robotframework==${RUNTIME_VERSIONS.robotframework}`);
+      await execCommand(`${venvPython} -m pip install notebook==${RUNTIME_VERSIONS.jupyter}`);
     } else {
       // For macOS, create virtual environment first
       const venvPath = path.join(pythonDir, 'venv');
