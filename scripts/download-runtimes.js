@@ -40,37 +40,65 @@ async function downloadFile(url, outputPath) {
   });
 }
 
-async function setupPython(platform) {
-  const pythonDir = path.join(RUNTIMES_DIR, 'python');
-  fs.mkdirSync(pythonDir, { recursive: true });
-
-  const venvPath = path.join(pythonDir, 'venv');
-  console.log('Creating Python virtual environment...');
-
+function execCommand(command, options = {}) {
   try {
-    // Create virtual environment
-    execSync(`python3 -m venv "${venvPath}"`, { stdio: 'inherit' });
+    return execSync(command, {
+      stdio: 'inherit',
+      shell: true,
+      ...options
+    });
+  }
+  catch (error) {
+    console.error(`Error executing command: ${command}`);
+    console.error(error);
+    throw error;
+  }
+}
 
-    // Get the path to the Python executable in the virtual environment
-    const pythonBin = platform === 'windows' ?
-      path.join(venvPath, 'Scripts', 'python.exe') :
-      path.join(venvPath, 'bin', 'python3');
+async function setupPython(platform) {
+  try {
+    const pythonDir = path.join(RUNTIMES_DIR, 'python');
+    fs.mkdirSync(pythonDir, { recursive: true });
 
-    const pipBin = platform === 'windows' ?
-      path.join(venvPath, 'Scripts', 'pip.exe') :
-      path.join(venvPath, 'bin', 'pip');
+    const venvPath = path.join(pythonDir, 'venv');
+    console.log('Creating Python virtual environment...');
 
-    // Upgrade pip in the virtual environment
-    console.log('Upgrading pip in virtual environment...');
-    execSync(`"${pythonBin}" -m pip install --upgrade pip`, { stdio: 'inherit' });
+    if (platform === 'windows') {
+      // For Windows, download the embedded distribution first
+      const url = RUNTIME_URLS.windows.python;
+      const fileName = path.basename(url);
+      const downloadPath = path.join(pythonDir, fileName);
 
-    // Install required packages in the virtual environment
-    console.log('Installing Robot Framework...');
-    execSync(`"${pipBin}" install robotframework==${RUNTIME_VERSIONS.robotframework}`,
-      { stdio: 'inherit' });
+      console.log('Downloading Python embedded distribution...');
+      await downloadFile(url, downloadPath);
 
-    console.log('Installing Jupyter...');
-    execSync(`"${pipBin}" install notebook==${RUNTIME_VERSIONS.jupyter}`, { stdio: 'inherit' });
+      console.log('Extracting Python...');
+      await extract(downloadPath, { dir: pythonDir });
+
+      // Create virtual environment using the downloaded Python
+      const pythonExe = path.join(pythonDir, 'python.exe');
+      execCommand(`"${pythonExe}" -m venv "${venvPath}"`);
+
+      // Use the virtual environment's Python and pip
+      const venvPython = path.join(venvPath, 'Scripts', 'python.exe');
+      const venvPip = path.join(venvPath, 'Scripts', 'pip.exe');
+
+      console.log('Installing required packages...');
+      execCommand(`"${venvPip}" install --upgrade pip`);
+      execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
+      execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
+
+    } else {
+      // For macOS, use system Python to create venv
+      execCommand(`python3 -m venv "${venvPath}"`);
+
+      const venvPip = path.join(venvPath, 'bin', 'pip');
+
+      console.log('Installing required packages...');
+      execCommand(`"${venvPip}" install --upgrade pip`);
+      execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
+      execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
+    }
 
     // Create activation scripts
     const activateContent = platform === 'windows' ?
@@ -81,36 +109,43 @@ async function setupPython(platform) {
     fs.writeFileSync(path.join(pythonDir, activateScript), activateContent);
 
     if (platform !== 'windows') {
-      // Make the activation script executable on Unix-like systems
       fs.chmodSync(path.join(pythonDir, activateScript), '755');
     }
 
     console.log('Python environment setup completed successfully!');
   }
   catch (error) {
-    console.error('Error setting up Python environment:', error);
+    console.error('Failed to setup Python environment:', error);
     throw error;
   }
 }
 
 async function setupNodejs(platform) {
-  const nodeDir = path.join(RUNTIMES_DIR, 'nodejs');
-  fs.mkdirSync(nodeDir, { recursive: true });
+  try {
+    const nodeDir = path.join(RUNTIMES_DIR, 'nodejs');
+    fs.mkdirSync(nodeDir, { recursive: true });
 
-  const url = RUNTIME_URLS[platform].nodejs;
-  const fileName = path.basename(url);
-  const downloadPath = path.join(nodeDir, fileName);
+    const url = RUNTIME_URLS[platform].nodejs;
+    const fileName = path.basename(url);
+    const downloadPath = path.join(nodeDir, fileName);
 
-  await downloadFile(url, downloadPath);
+    console.log('Downloading Node.js...');
+    await downloadFile(url, downloadPath);
 
-  if (platform === 'windows') {
-    await extract(downloadPath, { dir: nodeDir });
-  } else {
-    execSync(`tar -xzf "${downloadPath}" -C "${nodeDir}"`);
+    console.log('Extracting Node.js...');
+    if (platform === 'windows') {
+      await extract(downloadPath, { dir: nodeDir });
+    } else {
+      execCommand(`tar -xzf "${downloadPath}" -C "${nodeDir}"`);
+    }
+
+    fs.unlinkSync(downloadPath);
+    console.log('Node.js setup completed successfully!');
   }
-
-  // Remove the archive after extraction
-  fs.unlinkSync(downloadPath);
+  catch (error) {
+    console.error('Failed to setup Node.js:', error);
+    throw error;
+  }
 }
 
 async function main() {
