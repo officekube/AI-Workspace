@@ -4,12 +4,13 @@ const path = require('path');
 const extract = require('extract-zip');
 const { spawn } = require('child_process');
 
-const RUNTIME_VERSIONS = {
-  python: '3.11.0',
-  nodejs: '18.16.0',
-  robotframework: '6.1.1',
-  jupyter: '7.0.0'
-};
+
+
+const packageJson = require(path.join(__dirname, '..', 'package.json'));
+const RUNTIME_VERSIONS = packageJson.runtimeVersions;
+
+// const packageJson = require('../package.json');
+// const RUNTIME_VERSIONS = packageJson.runtimeVersions;
 
 const RUNTIME_URLS = {
   windows: {

@@ -28,6 +28,7 @@
     ],
     "mac": {
       "target": "dmg",
+      "universal": true,
       "category": "public.app-category.developer-tools",
       "darkModeSupport": true,
       "hardenedRuntime": false,
@@ -60,6 +61,12 @@
       "provider": "github",
       "releaseType": "release"
     }
+  },
+  "runtimeVersions": {
+    "python": "3.11.0",
+    "nodejs": "18.16.0",
+    "robotframework": "6.1.1",
+    "jupyter": "7.0.0"
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.0"
