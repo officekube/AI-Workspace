@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'feature/**'
+  pull_request:
+    branches:
+      - 'feature/**'
 
 jobs:
   release:
