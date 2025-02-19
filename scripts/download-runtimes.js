@@ -44,25 +44,53 @@ async function setupPython(platform) {
   const pythonDir = path.join(RUNTIMES_DIR, 'python');
   fs.mkdirSync(pythonDir, { recursive: true });
 
-  const url = RUNTIME_URLS[platform].python;
-  const fileName = path.basename(url);
-  const downloadPath = path.join(pythonDir, fileName);
+  const venvPath = path.join(pythonDir, 'venv');
+  console.log('Creating Python virtual environment...');
 
-  await downloadFile(url, downloadPath);
+  try {
+    // Create virtual environment
+    execSync(`python3 -m venv "${venvPath}"`, { stdio: 'inherit' });
 
-  // Extract or install based on platform
-  if (platform === 'windows') {
-    await extract(downloadPath, { dir: pythonDir });
-  } else {
-    execSync(`sudo installer -pkg "${downloadPath}" -target /`);
+    // Get the path to the Python executable in the virtual environment
+    const pythonBin = platform === 'windows' ?
+      path.join(venvPath, 'Scripts', 'python.exe') :
+      path.join(venvPath, 'bin', 'python3');
+
+    const pipBin = platform === 'windows' ?
+      path.join(venvPath, 'Scripts', 'pip.exe') :
+      path.join(venvPath, 'bin', 'pip');
+
+    // Upgrade pip in the virtual environment
+    console.log('Upgrading pip in virtual environment...');
+    execSync(`"${pythonBin}" -m pip install --upgrade pip`, { stdio: 'inherit' });
+
+    // Install required packages in the virtual environment
+    console.log('Installing Robot Framework...');
+    execSync(`"${pipBin}" install robotframework==${RUNTIME_VERSIONS.robotframework}`,
+      { stdio: 'inherit' });
+
+    console.log('Installing Jupyter...');
+    execSync(`"${pipBin}" install notebook==${RUNTIME_VERSIONS.jupyter}`, { stdio: 'inherit' });
+
+    // Create activation scripts
+    const activateContent = platform === 'windows' ?
+      `@echo off\ncall "${path.join(venvPath, 'Scripts', 'activate.bat')}"` :
+      `#!/bin/bash\nsource "${path.join(venvPath, 'bin', 'activate')}"`;
+
+    const activateScript = platform === 'windows' ? 'activate.bat' : 'activate.sh';
+    fs.writeFileSync(path.join(pythonDir, activateScript), activateContent);
+
+    if (platform !== 'windows') {
+      // Make the activation script executable on Unix-like systems
+      fs.chmodSync(path.join(pythonDir, activateScript), '755');
+    }
+
+    console.log('Python environment setup completed successfully!');
   }
-
-  // Install pip and required packages
-  const pipCommand = platform === 'windows' ?
-    'python -m ensurepip && python -m pip install --upgrade pip' :
-    'python3 -m ensurepip && python3 -m pip install --upgrade pip';
-
-  execSync(pipCommand, { cwd: pythonDir });
+  catch (error) {
+    console.error('Error setting up Python environment:', error);
+    throw error;
+  }
 }
 
 async function setupNodejs(platform) {
@@ -80,16 +108,9 @@ async function setupNodejs(platform) {
   } else {
     execSync(`tar -xzf "${downloadPath}" -C "${nodeDir}"`);
   }
-}
 
-async function setupRobotFramework() {
-  // Install Robot Framework using pip
-  execSync('pip install robotframework==${RUNTIME_VERSIONS.robotframework}');
-}
-
-async function setupJupyter() {
-  // Install Jupyter using pip
-  execSync('pip install notebook==${RUNTIME_VERSIONS.jupyter}');
+  // Remove the archive after extraction
+  fs.unlinkSync(downloadPath);
 }
 
 async function main() {
@@ -102,14 +123,9 @@ async function main() {
     console.log('Setting up Node.js...');
     await setupNodejs(platform);
 
-    console.log('Setting up Robot Framework...');
-    await setupRobotFramework();
-
-    console.log('Setting up Jupyter...');
-    await setupJupyter();
-
     console.log('All runtimes downloaded and set up successfully!');
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Error setting up runtimes:', error);
     process.exit(1);
   }
