@@ -7,7 +7,6 @@
     "start": "electron .",
     "download-runtimes": "node scripts/download-runtimes.js",
     "build": "npm run download-runtimes && electron-builder --x64 --arm64",
-    "release2": "electron-builder --x64 --arm64 --publish always",
     "release": "electron-builder --publish always"
   },
   "build": {
@@ -28,7 +27,6 @@
     ],
     "mac": {
       "target": "dmg",
-      "universal": true,
       "category": "public.app-category.developer-tools",
       "darkModeSupport": true,
       "hardenedRuntime": false,
