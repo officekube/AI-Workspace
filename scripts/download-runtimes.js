@@ -13,7 +13,7 @@ const RUNTIME_VERSIONS = {
 
 const RUNTIME_URLS = {
   windows: {
-    python: `https://www.python.org/ftp/python/${RUNTIME_VERSIONS.python}/python-${RUNTIME_VERSIONS.python}-embed-amd64.zip`,
+    python: `https://www.python.org/ftp/python/${RUNTIME_VERSIONS.python}/python-${RUNTIME_VERSIONS.python}-amd64.exe`,
     nodejs: `https://nodejs.org/dist/v${RUNTIME_VERSIONS.nodejs}/node-v${RUNTIME_VERSIONS.nodejs}-win-x64.zip`,
   },
   macos: {
@@ -25,6 +25,7 @@ const RUNTIME_URLS = {
 const RUNTIMES_DIR = path.join(__dirname, '../resources/runtimes');
 
 async function downloadFile(url, outputPath) {
+  console.log(`Downloading ${url} to ${outputPath}`);
   const response = await axios({
     url,
     method: 'GET',
@@ -42,14 +43,17 @@ async function downloadFile(url, outputPath) {
 
 function execCommand(command, options = {}) {
   return new Promise((resolve, reject) => {
+    console.log(`Executing command: ${command}`);
     const isWindows = process.platform === 'win32';
-    const [cmd, ...args] = isWindows ? ['cmd', '/C', command] : ['sh', '-c', command];
 
-    const proc = spawn(cmd, isWindows ? ['/S', '/C', command] : args, {
-      stdio: 'inherit',
-      shell: false,
-      ...options
-    });
+    const proc = isWindows ?
+      spawn('cmd', ['/S', '/C', command], { ...options, shell: false }) :
+      spawn('bash', ['-c', command], { ...options, shell: false });
+
+    if (options.stdio !== 'inherit') {
+      proc.stdout?.on('data', (data) => console.log(data.toString()));
+      proc.stderr?.on('data', (data) => console.error(data.toString()));
+    }
 
     proc.on('close', (code) => {
       if (code === 0) {
@@ -70,60 +74,43 @@ async function setupPython(platform) {
     const pythonDir = path.join(RUNTIMES_DIR, 'python');
     fs.mkdirSync(pythonDir, { recursive: true });
 
-    const venvPath = path.join(pythonDir, 'venv');
-    console.log('Creating Python virtual environment...');
-
     if (platform === 'windows') {
-      // For Windows, download the embedded distribution first
+      // For Windows, download the full installer
       const url = RUNTIME_URLS.windows.python;
       const fileName = path.basename(url);
       const downloadPath = path.join(pythonDir, fileName);
 
-      console.log('Downloading Python embedded distribution...');
+      console.log('Downloading Python installer...');
       await downloadFile(url, downloadPath);
 
-      console.log('Extracting Python...');
-      await extract(downloadPath, { dir: pythonDir });
+      // Install Python silently with necessary features
+      console.log('Installing Python...');
+      await execCommand(`"${downloadPath}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir="${pythonDir}"`);
 
-      // Create batch script for setting up Python
-      const setupScript = path.join(pythonDir, 'setup.bat');
-      const setupContent = `@echo off
-set PATH=${pythonDir};%PATH%
-"${path.join(pythonDir, 'python.exe')}" -m venv "${venvPath}"
-call "${path.join(venvPath, 'Scripts', 'activate.bat')}"
-"${path.join(venvPath, 'Scripts', 'python.exe')}" -m pip install --upgrade pip
-"${path.join(venvPath,
-        'Scripts',
-        'pip.exe')}" install robotframework==${RUNTIME_VERSIONS.robotframework}
-"${path.join(venvPath, 'Scripts', 'pip.exe')}" install notebook==${RUNTIME_VERSIONS.jupyter}
-`;
-      fs.writeFileSync(setupScript, setupContent);
+      // Create virtual environment using the installed Python
+      console.log('Creating virtual environment...');
+      await execCommand(`"${path.join(pythonDir, 'python.exe')}" -m venv "${path.join(pythonDir,
+        'venv')}"`);
 
-      // Execute setup script
-      await execCommand(setupScript);
+      // Install packages in the virtual environment
+      const venvPython = path.join(pythonDir, 'venv', 'Scripts', 'python.exe');
+      const venvPip = path.join(pythonDir, 'venv', 'Scripts', 'pip.exe');
 
-    } else {
-      // For macOS, use system Python to create venv
-      await execCommand(`python3 -m venv "${venvPath}"`);
-
-      const venvPip = path.join(venvPath, 'bin', 'pip');
-
-      console.log('Installing required packages...');
+      console.log('Installing Python packages...');
       await execCommand(`"${venvPip}" install --upgrade pip`);
       await execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
       await execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
-    }
 
-    // Create activation scripts
-    const activateContent = platform === 'windows' ?
-      `@echo off\ncall "${path.join(venvPath, 'Scripts', 'activate.bat')}"` :
-      `#!/bin/bash\nsource "${path.join(venvPath, 'bin', 'activate')}"`;
+    } else {
+      // For macOS, create virtual environment first
+      const venvPath = path.join(pythonDir, 'venv');
+      await execCommand(`python3 -m venv "${venvPath}"`);
 
-    const activateScript = platform === 'windows' ? 'activate.bat' : 'activate.sh';
-    fs.writeFileSync(path.join(pythonDir, activateScript), activateContent);
-
-    if (platform !== 'windows') {
-      fs.chmodSync(path.join(pythonDir, activateScript), '755');
+      const venvPip = path.join(venvPath, 'bin', 'pip');
+      console.log('Installing Python packages...');
+      await execCommand(`"${venvPip}" install --upgrade pip`);
+      await execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
+      await execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
     }
 
     console.log('Python environment setup completed successfully!');
