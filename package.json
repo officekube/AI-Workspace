@@ -53,6 +53,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "compression": "store",
       "createDesktopShortcut": true
     },
     "publish": {

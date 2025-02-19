@@ -62,6 +62,22 @@ jobs:
       - name: Download runtimes
         run: npm run download-runtimes
 
+      # For testing: if the workflow isn’t triggered by a tag, create a temporary tag.
+      - name: Set tag name for testing
+        id: set_tag_name
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "Detected tag: ${GITHUB_REF##*/}"
+            echo "::set-output name=tag::${GITHUB_REF##*/}"
+          else
+            TAG="v0.0.0-test-$(date +%s)"
+            echo "No tag detected. Creating test tag: $TAG"
+            git tag $TAG
+            git push origin $TAG
+            echo "::set-output name=tag::$TAG"
+          fi
+        shell: bash
+
       - name: Build and Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,6 +86,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.set_tag_name.outputs.tag }}
           files: |
             dist/*.exe
             dist/*.dmg
