@@ -36,7 +36,10 @@ async function downloadFile(url, outputPath) {
   response.data.pipe(writer);
 
   return new Promise((resolve, reject) => {
-    writer.on('finish', resolve);
+    writer.on('finish', () => {
+      writer.close();
+      resolve();
+    });
     writer.on('error', reject);
   });
 }
@@ -47,7 +50,7 @@ function execCommand(command, options = {}) {
     const isWindows = process.platform === 'win32';
 
     const proc = isWindows ?
-      spawn('cmd', ['/S', '/C', command], { ...options, shell: false }) :
+      spawn('cmd', ['/S', '/C', `"${command}"`], { ...options, shell: true }) :
       spawn('bash', ['-c', command], { ...options, shell: false });
 
     if (options.stdio !== 'inherit') {
@@ -83,23 +86,34 @@ async function setupPython(platform) {
       console.log('Downloading Python installer...');
       await downloadFile(url, downloadPath);
 
-      // Install Python silently with necessary features
+      // Verify the file exists and has content
+      if (!fs.existsSync(downloadPath)) {
+        throw new Error('Python installer not downloaded correctly');
+      }
+
+      const fileStats = fs.statSync(downloadPath);
+      if (fileStats.size === 0) {
+        throw new Error('Python installer file is empty');
+      }
+
+      // Install Python silently
       console.log('Installing Python...');
-      await execCommand(`"${downloadPath}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir="${pythonDir}"`);
+      const installCommand = `${downloadPath} /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir=${pythonDir}`;
+      await execCommand(installCommand);
 
       // Create virtual environment using the installed Python
       console.log('Creating virtual environment...');
-      await execCommand(`"${path.join(pythonDir, 'python.exe')}" -m venv "${path.join(pythonDir,
-        'venv')}"`);
+      const pythonExe = path.join(pythonDir, 'python.exe');
+      await execCommand(`${pythonExe} -m venv ${path.join(pythonDir, 'venv')}`);
 
       // Install packages in the virtual environment
       const venvPython = path.join(pythonDir, 'venv', 'Scripts', 'python.exe');
       const venvPip = path.join(pythonDir, 'venv', 'Scripts', 'pip.exe');
 
       console.log('Installing Python packages...');
-      await execCommand(`"${venvPip}" install --upgrade pip`);
-      await execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
-      await execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
+      await execCommand(`${venvPip} install --upgrade pip`);
+      await execCommand(`${venvPip} install robotframework==${RUNTIME_VERSIONS.robotframework}`);
+      await execCommand(`${venvPip} install notebook==${RUNTIME_VERSIONS.jupyter}`);
 
     } else {
       // For macOS, create virtual environment first

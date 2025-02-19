@@ -6,13 +6,16 @@
   "scripts": {
     "start": "electron .",
     "download-runtimes": "node scripts/download-runtimes.js",
-    "build": "npm run download-runtimes && electron-builder",
-    "release": "electron-builder --publish always"
+    "build": "npm run download-runtimes && electron-builder --x64 --arm64",
+    "release": "electron-builder --x64 --arm64 --publish always"
   },
   "build": {
     "appId": "com.aidesktop.app",
     "productName": "AI Desktop",
     "asar": true,
+    "asarUnpack": [
+      "resources/runtimes/**/*"
+    ],
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -20,37 +23,20 @@
     "files": [
       "src/**/*",
       "resources/**/*",
-      "!resources/runtimes/**/*",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "resources/runtimes",
-        "to": "runtimes",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
+      "target": "dmg",
       "category": "public.app-category.developer-tools",
       "darkModeSupport": true,
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "notarize": false
+      "notarize": false,
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "dmg": {
       "writeUpdateInfo": false,
-      "format": "ULFO"
+      "format": "UDZO"
     },
     "win": {
       "target": [
@@ -60,7 +46,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -83,7 +70,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/ai-desktop.git"
+    "url": "git+https://github.com/rylxes/AI-Workspace.git"
   },
   "author": "",
   "license": "MIT"
