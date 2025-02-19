@@ -24,27 +24,34 @@ async function updateReleaseNotes() {
       repo
     });
 
-    // Safely search for assets
+    // Find assets by matching parts of the name (case-insensitive)
     const windowsAsset = release.data.assets.find(a =>
       a.name.toLowerCase().includes('exe')
     );
-    const macAsset = release.data.assets.find(a =>
-      a.name.toLowerCase().includes('dmg')
+    const macIntelAsset = release.data.assets.find(a =>
+      a.name.toLowerCase().includes('x64') && a.name.toLowerCase().endsWith('.dmg')
+    );
+    const macArmAsset = release.data.assets.find(a =>
+      a.name.toLowerCase().includes('arm64') && a.name.toLowerCase().endsWith('.dmg')
+    );
+    // Adjust the search for Linux artifacts as needed (e.g., AppImage, deb, etc.)
+    const linuxAsset = release.data.assets.find(a =>
+      a.name.toLowerCase().includes('appimage') || a.name.toLowerCase().endsWith('.deb')
     );
 
-    const windowsDownloadUrl = windowsAsset
-      ? windowsAsset.browser_download_url
-      : 'N/A';
-    const macDownloadUrl = macAsset
-      ? macAsset.browser_download_url
-      : 'N/A';
+    const windowsDownloadUrl = windowsAsset ? windowsAsset.browser_download_url : 'N/A';
+    const macIntelDownloadUrl = macIntelAsset ? macIntelAsset.browser_download_url : 'N/A';
+    const macArmDownloadUrl = macArmAsset ? macArmAsset.browser_download_url : 'N/A';
+    const linuxDownloadUrl = linuxAsset ? linuxAsset.browser_download_url : 'N/A';
 
-    // Generate markdown content
+    // Generate markdown content for the release notes.
     const releaseNotes = `# Latest Release (v${version})
 
 ## Downloads
 - [Windows Installer](${windowsDownloadUrl})
-- [macOS Installer](${macDownloadUrl})
+- [macOS Installer (Apple Silicon)](${macArmDownloadUrl})
+- [macOS Installer (Intel)](${macIntelDownloadUrl})
+- [Linux](${linuxDownloadUrl})
 
 ## Included Runtimes
 - Python ${packageJson.runtimeVersions ? packageJson.runtimeVersions.python : 'N/A'}
@@ -71,7 +78,7 @@ ${release.data.body}`;
       // File does not exist; leave sha undefined.
     }
 
-    // Commit the updated RELEASE.md
+    // Commit or update the RELEASE.md file in the repository.
     await octokit.repos.createOrUpdateFileContents({
       owner,
       repo,
