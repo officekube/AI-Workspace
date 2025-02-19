@@ -26,20 +26,44 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18.x'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci
+          else
+            npm install
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add package-lock.json
+            git commit -m "chore: Add package-lock.json [skip ci]" || true
+            git push || true
+          fi
+        shell: bash
 
       - name: Download runtimes
         run: npm run download-runtimes
 
-      - name: Build and release
+      - name: Build and Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
 
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.exe
+            dist/*.dmg
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Update Release Notes
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'macos-latest'
         run: node scripts/update-release.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
