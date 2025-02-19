@@ -49,9 +49,10 @@ function execCommand(command, options = {}) {
     console.log(`Executing command: ${command}`);
     const isWindows = process.platform === 'win32';
 
-    const proc = isWindows ?
-      spawn('cmd', ['/S', '/C', `"${command}"`], { ...options, shell: true }) :
-      spawn('bash', ['-c', command], { ...options, shell: false });
+    // For Windows, do not add extra quotes around the command.
+    const proc = isWindows
+      ? spawn('cmd', ['/S', '/C', command], { ...options, shell: true })
+      : spawn('bash', ['-c', command], { ...options, shell: false });
 
     if (options.stdio !== 'inherit') {
       proc.stdout?.on('data', (data) => console.log(data.toString()));
@@ -78,7 +79,7 @@ async function setupPython(platform) {
     fs.mkdirSync(pythonDir, { recursive: true });
 
     if (platform === 'windows') {
-      // For Windows, download the full installer
+      // For Windows, download the installer
       const url = RUNTIME_URLS.windows.python;
       const fileName = path.basename(url);
       const downloadPath = path.join(pythonDir, fileName);
@@ -86,7 +87,6 @@ async function setupPython(platform) {
       console.log('Downloading Python installer...');
       await downloadFile(url, downloadPath);
 
-      // Verify the file exists and has content
       if (!fs.existsSync(downloadPath)) {
         throw new Error('Python installer not downloaded correctly');
       }
@@ -96,25 +96,22 @@ async function setupPython(platform) {
         throw new Error('Python installer file is empty');
       }
 
-      // Install Python silently
       console.log('Installing Python...');
       const installCommand = `${downloadPath} /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir=${pythonDir}`;
       await execCommand(installCommand);
 
-      // Create virtual environment using the installed Python
       console.log('Creating virtual environment...');
       const pythonExe = path.join(pythonDir, 'python.exe');
       await execCommand(`${pythonExe} -m venv ${path.join(pythonDir, 'venv')}`);
 
-      // Install packages in the virtual environment
-      const venvPython = path.join(pythonDir, 'venv', 'Scripts', 'python.exe');
-
       console.log('Installing Python packages...');
+      const venvPython = path.join(pythonDir, 'venv', 'Scripts', 'python.exe');
       await execCommand(`${venvPython} -m pip install --upgrade pip`);
       await execCommand(`${venvPython} -m pip install robotframework==${RUNTIME_VERSIONS.robotframework}`);
       await execCommand(`${venvPython} -m pip install notebook==${RUNTIME_VERSIONS.jupyter}`);
+
     } else {
-      // For macOS, create virtual environment first
+      // For macOS, use system python3 to create a virtual environment
       const venvPath = path.join(pythonDir, 'venv');
       await execCommand(`python3 -m venv "${venvPath}"`);
 
@@ -126,8 +123,7 @@ async function setupPython(platform) {
     }
 
     console.log('Python environment setup completed successfully!');
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to setup Python environment:', error);
     throw error;
   }
@@ -154,8 +150,7 @@ async function setupNodejs(platform) {
 
     fs.unlinkSync(downloadPath);
     console.log('Node.js setup completed successfully!');
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to setup Node.js:', error);
     throw error;
   }
@@ -172,8 +167,7 @@ async function main() {
     await setupNodejs(platform);
 
     console.log('All runtimes downloaded and set up successfully!');
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Error setting up runtimes:', error);
     process.exit(1);
   }

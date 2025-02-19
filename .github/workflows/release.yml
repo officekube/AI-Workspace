@@ -10,6 +10,12 @@ on:
     branches:
       - 'feature/**'
 
+# Grant sufficient permissions to work with releases
+permissions:
+  contents: write
+  issues: write
+  releases: write
+
 jobs:
   release:
     runs-on: ${{ matrix.os }}
@@ -42,7 +48,7 @@ jobs:
           fi
         shell: bash
 
-      # Now setup cache after package-lock.json exists
+      # Setup cache after package-lock.json exists
       - name: Cache node modules
         uses: actions/cache@v3
         with:
