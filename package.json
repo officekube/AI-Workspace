@@ -7,7 +7,8 @@
     "start": "electron .",
     "download-runtimes": "node scripts/download-runtimes.js",
     "build": "npm run download-runtimes && electron-builder --x64 --arm64",
-    "release": "electron-builder --x64 --arm64 --publish always"
+    "release2": "electron-builder --x64 --arm64 --publish always",
+    "release": "electron-builder --publish always"
   },
   "build": {
     "appId": "com.aidesktop.app",
@@ -64,6 +65,7 @@
     "electron-squirrel-startup": "^1.0.0"
   },
   "devDependencies": {
+    "@octokit/rest": "^19.0.7",
     "electron": "^28.0.0",
     "electron-builder": "^24.0.0",
     "axios": "^1.6.0",
