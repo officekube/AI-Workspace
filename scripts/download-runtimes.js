@@ -49,27 +49,65 @@ function execCommand(command, options = {}) {
     console.log(`Executing command: ${command}`);
     const isWindows = process.platform === 'win32';
 
-    // For Windows, do not add extra quotes around the command.
-    const proc = isWindows
-      ? spawn('cmd', ['/S', '/C', command], { ...options, shell: true })
-      : spawn('bash', ['-c', command], { ...options, shell: false });
+    if (isWindows) {
+      // Create a batch file for Windows commands
+      const batchFile = path.join(RUNTIMES_DIR, 'temp.bat');
+      fs.writeFileSync(batchFile, `@echo off\n${command}\n`, 'utf8');
 
-    if (options.stdio !== 'inherit') {
+      const proc = spawn('cmd', ['/S', '/C', batchFile], {
+        ...options,
+        shell: true,
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUTF8: '1'
+        }
+      });
+
       proc.stdout?.on('data', (data) => console.log(data.toString()));
       proc.stderr?.on('data', (data) => console.error(data.toString()));
+
+      proc.on('close', (code) => {
+        try {
+          fs.unlinkSync(batchFile);
+        }
+        catch (err) {
+          console.warn('Could not delete temporary batch file:', err);
+        }
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Command failed with exit code ${code}`));
+        }
+      });
+
+      proc.on('error', (err) => {
+        try {
+          fs.unlinkSync(batchFile);
+        }
+        catch (error) {
+          console.warn('Could not delete temporary batch file:', error);
+        }
+        reject(err);
+      });
+    } else {
+      const proc = spawn('bash', ['-c', command], { ...options, shell: false });
+
+      proc.stdout?.on('data', (data) => console.log(data.toString()));
+      proc.stderr?.on('data', (data) => console.error(data.toString()));
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Command failed with exit code ${code}`));
+        }
+      });
+
+      proc.on('error', (err) => {
+        reject(err);
+      });
     }
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Command failed with exit code ${code}`));
-      }
-    });
-
-    proc.on('error', (err) => {
-      reject(err);
-    });
   });
 }
 
@@ -79,7 +117,6 @@ async function setupPython(platform) {
     fs.mkdirSync(pythonDir, { recursive: true });
 
     if (platform === 'windows') {
-      // For Windows, download the installer
       const url = RUNTIME_URLS.windows.python;
       const fileName = path.basename(url);
       const downloadPath = path.join(pythonDir, fileName);
@@ -87,31 +124,26 @@ async function setupPython(platform) {
       console.log('Downloading Python installer...');
       await downloadFile(url, downloadPath);
 
-      if (!fs.existsSync(downloadPath)) {
-        throw new Error('Python installer not downloaded correctly');
-      }
-
-      const fileStats = fs.statSync(downloadPath);
-      if (fileStats.size === 0) {
-        throw new Error('Python installer file is empty');
-      }
-
       console.log('Installing Python...');
-      const installCommand = `${downloadPath} /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir=${pythonDir}`;
-      await execCommand(installCommand);
+      await execCommand(`start /wait "" "${downloadPath}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir="${pythonDir}"`);
+
+      // Wait a bit for Python installation to complete
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
       console.log('Creating virtual environment...');
-      const pythonExe = path.join(pythonDir, 'python.exe');
-      await execCommand(`${pythonExe} -m venv ${path.join(pythonDir, 'venv')}`);
+      await execCommand(`"${path.join(pythonDir, 'python.exe')}" -m venv "${path.join(pythonDir,
+        'venv')}"`);
+
+      // Wait a bit for venv creation to complete
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       console.log('Installing Python packages...');
       const venvPython = path.join(pythonDir, 'venv', 'Scripts', 'python.exe');
-      await execCommand(`${venvPython} -m pip install --upgrade pip`);
-      await execCommand(`${venvPython} -m pip install robotframework==${RUNTIME_VERSIONS.robotframework}`);
-      await execCommand(`${venvPython} -m pip install notebook==${RUNTIME_VERSIONS.jupyter}`);
+      await execCommand(`"${venvPython}" -m pip install --upgrade pip`);
+      await execCommand(`"${venvPython}" -m pip install robotframework==${RUNTIME_VERSIONS.robotframework}`);
+      await execCommand(`"${venvPython}" -m pip install notebook==${RUNTIME_VERSIONS.jupyter}`);
 
     } else {
-      // For macOS, use system python3 to create a virtual environment
       const venvPath = path.join(pythonDir, 'venv');
       await execCommand(`python3 -m venv "${venvPath}"`);
 
@@ -123,7 +155,8 @@ async function setupPython(platform) {
     }
 
     console.log('Python environment setup completed successfully!');
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Failed to setup Python environment:', error);
     throw error;
   }
@@ -150,7 +183,8 @@ async function setupNodejs(platform) {
 
     fs.unlinkSync(downloadPath);
     console.log('Node.js setup completed successfully!');
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Failed to setup Node.js:', error);
     throw error;
   }
@@ -167,7 +201,8 @@ async function main() {
     await setupNodejs(platform);
 
     console.log('All runtimes downloaded and set up successfully!');
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Error setting up runtimes:', error);
     process.exit(1);
   }
