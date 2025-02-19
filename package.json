@@ -1,0 +1,44 @@
+{
+  "name": "ai-desktop",
+  "version": "1.0.0",
+  "description": "AI Desktop Application with bundled runtimes",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "download-runtimes": "node scripts/download-runtimes.js",
+    "build": "npm run download-runtimes && electron-builder",
+    "release": "electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.aidesktop.app",
+    "productName": "AI Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "resources/**/*",
+      "!resources/runtimes/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/runtimes",
+        "to": "runtimes",
+        "filter": ["**/*"]
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0",
+    "axios": "^1.6.0",
+    "extract-zip": "^2.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/ai-desktop.git"
+  },
+  "author": "",
+  "license": "MIT"
+}
