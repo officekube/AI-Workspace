@@ -2,7 +2,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const extract = require('extract-zip');
-const { execSync } = require('child_process');
+const { spawn } = require('child_process');
 
 const RUNTIME_VERSIONS = {
   python: '3.11.0',
@@ -41,18 +41,28 @@ async function downloadFile(url, outputPath) {
 }
 
 function execCommand(command, options = {}) {
-  try {
-    return execSync(command, {
+  return new Promise((resolve, reject) => {
+    const isWindows = process.platform === 'win32';
+    const [cmd, ...args] = isWindows ? ['cmd', '/C', command] : ['sh', '-c', command];
+
+    const proc = spawn(cmd, isWindows ? ['/S', '/C', command] : args, {
       stdio: 'inherit',
-      shell: true,
+      shell: false,
       ...options
     });
-  }
-  catch (error) {
-    console.error(`Error executing command: ${command}`);
-    console.error(error);
-    throw error;
-  }
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Command failed with exit code ${code}`));
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(err);
+    });
+  });
 }
 
 async function setupPython(platform) {
@@ -75,29 +85,33 @@ async function setupPython(platform) {
       console.log('Extracting Python...');
       await extract(downloadPath, { dir: pythonDir });
 
-      // Create virtual environment using the downloaded Python
-      const pythonExe = path.join(pythonDir, 'python.exe');
-      execCommand(`"${pythonExe}" -m venv "${venvPath}"`);
+      // Create batch script for setting up Python
+      const setupScript = path.join(pythonDir, 'setup.bat');
+      const setupContent = `@echo off
+set PATH=${pythonDir};%PATH%
+"${path.join(pythonDir, 'python.exe')}" -m venv "${venvPath}"
+call "${path.join(venvPath, 'Scripts', 'activate.bat')}"
+"${path.join(venvPath, 'Scripts', 'python.exe')}" -m pip install --upgrade pip
+"${path.join(venvPath,
+        'Scripts',
+        'pip.exe')}" install robotframework==${RUNTIME_VERSIONS.robotframework}
+"${path.join(venvPath, 'Scripts', 'pip.exe')}" install notebook==${RUNTIME_VERSIONS.jupyter}
+`;
+      fs.writeFileSync(setupScript, setupContent);
 
-      // Use the virtual environment's Python and pip
-      const venvPython = path.join(venvPath, 'Scripts', 'python.exe');
-      const venvPip = path.join(venvPath, 'Scripts', 'pip.exe');
-
-      console.log('Installing required packages...');
-      execCommand(`"${venvPip}" install --upgrade pip`);
-      execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
-      execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
+      // Execute setup script
+      await execCommand(setupScript);
 
     } else {
       // For macOS, use system Python to create venv
-      execCommand(`python3 -m venv "${venvPath}"`);
+      await execCommand(`python3 -m venv "${venvPath}"`);
 
       const venvPip = path.join(venvPath, 'bin', 'pip');
 
       console.log('Installing required packages...');
-      execCommand(`"${venvPip}" install --upgrade pip`);
-      execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
-      execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
+      await execCommand(`"${venvPip}" install --upgrade pip`);
+      await execCommand(`"${venvPip}" install robotframework==${RUNTIME_VERSIONS.robotframework}`);
+      await execCommand(`"${venvPip}" install notebook==${RUNTIME_VERSIONS.jupyter}`);
     }
 
     // Create activation scripts
@@ -136,7 +150,7 @@ async function setupNodejs(platform) {
     if (platform === 'windows') {
       await extract(downloadPath, { dir: nodeDir });
     } else {
-      execCommand(`tar -xzf "${downloadPath}" -C "${nodeDir}"`);
+      await execCommand(`tar -xzf "${downloadPath}" -C "${nodeDir}"`);
     }
 
     fs.unlinkSync(downloadPath);
