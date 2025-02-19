@@ -53,8 +53,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "compression": "store",
-      "createDesktopShortcut": true
+      "useZip": true
     },
     "publish": {
       "provider": "github",

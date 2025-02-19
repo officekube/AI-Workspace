@@ -50,7 +50,7 @@ function execCommand(command, options = {}) {
     const isWindows = process.platform === 'win32';
 
     if (isWindows) {
-      // Create a batch file for Windows commands
+      // Create a temporary batch file for Windows commands.
       const batchFile = path.join(RUNTIMES_DIR, 'temp.bat');
       fs.writeFileSync(batchFile, `@echo off\n${command}\n`, 'utf8');
 
@@ -125,16 +125,17 @@ async function setupPython(platform) {
       await downloadFile(url, downloadPath);
 
       console.log('Installing Python...');
-      await execCommand(`start /wait "" "${downloadPath}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir="${pythonDir}"`);
+      // Removed "start /wait" to avoid interactive prompt.
+      await execCommand(`"${downloadPath}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir="${pythonDir}"`);
 
-      // Wait a bit for Python installation to complete
+      // Wait a bit for Python installation to complete.
       await new Promise(resolve => setTimeout(resolve, 5000));
 
       console.log('Creating virtual environment...');
       await execCommand(`"${path.join(pythonDir, 'python.exe')}" -m venv "${path.join(pythonDir,
         'venv')}"`);
 
-      // Wait a bit for venv creation to complete
+      // Wait a bit for venv creation to complete.
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       console.log('Installing Python packages...');
