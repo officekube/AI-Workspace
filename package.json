@@ -28,13 +28,13 @@
     ],
     "mac": {
       "target": "dmg",
-      "identity": null,
       "category": "public.app-category.developer-tools",
       "darkModeSupport": true,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "notarize": false,
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "identity": null
     },
     "dmg": {
       "writeUpdateInfo": false,

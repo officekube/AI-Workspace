@@ -13,9 +13,9 @@ async function updateReleaseNotes() {
 
   // Extract owner and repo from the repository URL
   const [owner, repo] = repoUrl
-    .replace('git+https://github.com/', '')
-    .replace('.git', '')
-    .split('/');
+  .replace('git+https://github.com/', '')
+  .replace('.git', '')
+  .split('/');
 
   try {
     // Get the latest release
@@ -24,40 +24,66 @@ async function updateReleaseNotes() {
       repo
     });
 
+    // Safely search for assets
+    const windowsAsset = release.data.assets.find(a =>
+      a.name.toLowerCase().includes('exe')
+    );
+    const macAsset = release.data.assets.find(a =>
+      a.name.toLowerCase().includes('dmg')
+    );
+
+    const windowsDownloadUrl = windowsAsset
+      ? windowsAsset.browser_download_url
+      : 'N/A';
+    const macDownloadUrl = macAsset
+      ? macAsset.browser_download_url
+      : 'N/A';
+
     // Generate markdown content
     const releaseNotes = `# Latest Release (v${version})
 
 ## Downloads
-- [Windows Installer](${release.data.assets.find(a => a.name.includes('exe')).browser_download_url})
-- [macOS Installer](${release.data.assets.find(a => a.name.includes('dmg')).browser_download_url})
+- [Windows Installer](${windowsDownloadUrl})
+- [macOS Installer](${macDownloadUrl})
 
 ## Included Runtimes
-- Python ${packageJson.runtimeVersions.python}
-- Node.js ${packageJson.runtimeVersions.nodejs}
-- Robot Framework ${packageJson.runtimeVersions.robotframework}
-- Jupyter Notebook ${packageJson.runtimeVersions.jupyter}
+- Python ${packageJson.runtimeVersions ? packageJson.runtimeVersions.python : 'N/A'}
+- Node.js ${packageJson.runtimeVersions ? packageJson.runtimeVersions.nodejs : 'N/A'}
+- Robot Framework ${packageJson.runtimeVersions ? packageJson.runtimeVersions.robotframework : 'N/A'}
+- Jupyter Notebook ${packageJson.runtimeVersions ? packageJson.runtimeVersions.jupyter : 'N/A'}
 
 ${release.data.body}`;
 
-    // Update RELEASE.md
+    // Write release notes locally
     fs.writeFileSync('RELEASE.md', releaseNotes);
 
-    // Commit and push the updated RELEASE.md
+    // Try to get the current SHA of RELEASE.md (if it exists)
+    let sha;
+    try {
+      const { data } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: 'RELEASE.md'
+      });
+      sha = data.sha;
+    }
+    catch (e) {
+      // File does not exist; leave sha undefined.
+    }
+
+    // Commit the updated RELEASE.md
     await octokit.repos.createOrUpdateFileContents({
       owner,
       repo,
       path: 'RELEASE.md',
       message: `Update release notes for v${version}`,
       content: Buffer.from(releaseNotes).toString('base64'),
-      sha: (await octokit.repos.getContent({
-        owner,
-        repo,
-        path: 'RELEASE.md'
-      })).data.sha
+      sha
     });
 
     console.log('Release notes updated successfully!');
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Error updating release notes:', error);
     process.exit(1);
   }
