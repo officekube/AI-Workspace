@@ -24,7 +24,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Set Tag Name for Testing
         id: set_tag
         run: |
@@ -33,6 +32,8 @@ jobs:
           else
             TAG="v0.0.0-test-$(date +%s)"
             echo "No tag detected. Using tag: $TAG"
+            git tag $TAG
+            git push origin $TAG
             echo "tag=$TAG" >> $GITHUB_OUTPUT
           fi
         shell: bash
@@ -108,16 +109,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Download each artifact into its own folder.
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist
-          merge-multiple: true
+          path: .
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18.x'
+      # Consolidate artifacts into a single folder with unique names.
+      - name: Consolidate Artifacts
+        run: |
+          mkdir -p release-assets
+          for d in $(find . -maxdepth 1 -type d -name 'build-*'); do
+            for f in "$d"/*; do
+              base=$(basename "$f")
+              # Prefix the file name with the artifact folder name to ensure uniqueness.
+              cp "$f" "release-assets/${d}-${base}"
+            done
+          done
+
+      - name: List Consolidated Files
+        run: ls -l release-assets
 
       - name: Clean up existing release
         env:
@@ -125,17 +136,14 @@ jobs:
         run: |
           TAG="${{ needs.prepare-tag.outputs.tag }}"
           echo "Cleaning up release for tag $TAG..."
-          
-          # Delete release if it exists
           RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
             | jq -r '.id')
-          
           if [ "$RELEASE_ID" != "null" ]; then
             echo "Deleting existing release..."
             curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
-            sleep 2  # Give GitHub API time to process the deletion
+            sleep 2
           fi
 
       - name: Create GitHub Release
@@ -143,18 +151,16 @@ jobs:
         with:
           tag_name: ${{ needs.prepare-tag.outputs.tag }}
           files: |
-            dist/**/*.exe
-            dist/**/*.dmg
-            dist/**/*.AppImage
+            release-assets/*
           draft: false
           prerelease: false
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Release Notes
         run: |
           npm install @octokit/rest
           node scripts/update-release.js
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
