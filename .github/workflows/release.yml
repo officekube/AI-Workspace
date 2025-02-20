@@ -144,7 +144,7 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  find "$platform_dir" -type f \( -name "AI.Desktop-Setup-*.exe" -o -name "AI.Desktop-Setup-*.msi" \) -exec cp -v {} release-assets/ \;
+                  find "$platform_dir" -type f \( -name "AI Desktop-Setup-*.exe" -o -name "AI Desktop-Setup-*.msi" \) -exec cp -v {} release-assets/ \;
                   ;;
                   
                 *"macos"*)
