@@ -147,30 +147,46 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  if find "$platform_dir" -type f -name "AI.Desktop-Setup-*.exe" -exec cp -v {} release-assets/ \; ; then
-                    ((installer_count++))
-                  fi
+                  # Handle Windows installer with potential spaces
+                  while IFS= read -r -d '' file; do
+                    if [[ "$file" == *"AI"*"Desktop"*"Setup"*.exe ]]; then
+                      cp -v "$file" "release-assets/"
+                      ((installer_count++))
+                    fi
+                  done < <(find "$platform_dir" -type f -name "*.exe" -print0)
                   ;;
                   
                 *"macos"*)
                   if [[ $platform == *"arm64"* ]]; then
                     echo "Processing macOS ARM artifacts..."
-                    if find "$platform_dir" -type f -name "AI.Desktop-*-arm64.dmg" -exec cp -v {} release-assets/ \; ; then
-                      ((installer_count++))
-                    fi
+                    # Handle macOS ARM installer with potential spaces
+                    while IFS= read -r -d '' file; do
+                      if [[ "$file" == *"AI"*"Desktop"*"arm64.dmg" ]]; then
+                        cp -v "$file" "release-assets/"
+                        ((installer_count++))
+                      fi
+                    done < <(find "$platform_dir" -type f -name "*.dmg" -print0)
                   else
                     echo "Processing macOS Intel artifacts..."
-                    if find "$platform_dir" -type f -name "AI.Desktop-*-x64.dmg" -exec cp -v {} release-assets/ \; ; then
-                      ((installer_count++))
-                    fi
+                    # Handle macOS Intel installer with potential spaces
+                    while IFS= read -r -d '' file; do
+                      if [[ "$file" == *"AI"*"Desktop"*"x64.dmg" ]]; then
+                        cp -v "$file" "release-assets/"
+                        ((installer_count++))
+                      fi
+                    done < <(find "$platform_dir" -type f -name "*.dmg" -print0)
                   fi
                   ;;
                   
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
-                  if find "$platform_dir" -type f -name "AI.Desktop-*-x86_64.AppImage" -exec cp -v {} release-assets/ \; ; then
-                    ((installer_count++))
-                  fi
+                  # Handle Linux installer with potential spaces
+                  while IFS= read -r -d '' file; do
+                    if [[ "$file" == *"AI"*"Desktop"*"x86_64.AppImage" ]]; then
+                      cp -v "$file" "release-assets/"
+                      ((installer_count++))
+                    fi
+                  done < <(find "$platform_dir" -type f -name "*.AppImage" -print0)
                   ;;
               esac
             fi
@@ -184,12 +200,15 @@ jobs:
           if [ "$installer_count" -lt 4 ]; then
             echo "Warning: Found fewer installers than expected. Found $installer_count, expected 4"
             echo "Missing some of these expected installers:"
-            echo "- AI.Desktop-Setup-*.exe (Windows)"
-            echo "- AI.Desktop-*-arm64.dmg (macOS ARM)"
-            echo "- AI.Desktop-*-x64.dmg (macOS Intel)"
-            echo "- AI.Desktop-*-x86_64.AppImage (Linux)"
+            echo "- AI Desktop Setup *.exe (Windows)"
+            echo "- AI Desktop *-arm64.dmg (macOS ARM)"
+            echo "- AI Desktop *-x64.dmg (macOS Intel)"
+            echo "- AI Desktop *-x86_64.AppImage (Linux)"
+            
+            # List all found files for debugging
+            echo "Found files in platform directories:"
+            find downloaded-artifacts -type f -exec ls -la {} \;
           fi
-
       - name: Clean up Existing Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
