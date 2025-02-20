@@ -118,14 +118,18 @@ jobs:
       - name: Consolidate Artifacts
         run: |
           mkdir -p release-assets
-          # For each artifact folder, find all regular files and copy them with a unique prefix.
+          # For each artifact folder, find and copy all files (including those in subdirectories)
           for d in $(find . -maxdepth 1 -type d -name 'build-*'); do
             echo "Processing artifact folder: $d"
-            find "$d" -type f | while read -r f; do
-              base=$(basename "$f")
-              prefix=$(basename "$d")
-              cp "$f" "release-assets/${prefix}-${base}"
-            done
+            prefix=$(basename "$d")
+            # Create a temporary directory for this build
+            mkdir -p "release-assets/$prefix"
+            # Copy all files, preserving directory structure
+            cp -r "$d"/* "release-assets/$prefix"/ || true
+            # Flatten the directory structure if needed
+            find "release-assets/$prefix" -type f -exec mv {} "release-assets/" \;
+            # Clean up the temporary directory
+            rm -rf "release-assets/$prefix"
           done
           ls -l release-assets
 
