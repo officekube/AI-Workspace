@@ -118,24 +118,42 @@ jobs:
         with:
           node-version: '18.x'
 
-      - name: Delete existing release
+      - name: Delete Existing Release Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.prepare-tag.outputs.tag }}"
-          
-          # Try to delete the release if it exists
+          echo "Deleting assets for release tag $TAG (if any)..."
+          ASSET_IDS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            | jq -r '.assets[].id' 2>/dev/null)
+          if [ -n "$ASSET_IDS" ]; then
+            for id in $ASSET_IDS; do
+              echo "Deleting asset with ID $id"
+              curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            done
+          else
+            echo "No assets found for tag $TAG"
+          fi
+
+      - name: Delete existing release and tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.prepare-tag.outputs.tag }}"
+          echo "Attempting to delete existing release for tag $TAG..."
           RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
             | jq -r '.id')
-          
           if [ "$RELEASE_ID" != "null" ]; then
-            echo "Deleting existing release..."
+            echo "Deleting existing release with ID $RELEASE_ID..."
             curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          else
+            echo "No release to delete for tag $TAG"
           fi
-          
-          # Delete the tag
+          echo "Deleting tag $TAG..."
           git push origin :refs/tags/$TAG || true
 
       - name: Create new tag
@@ -143,6 +161,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.prepare-tag.outputs.tag }}"
+          echo "Creating tag $TAG..."
           git tag $TAG
           git push origin $TAG
 
@@ -158,11 +177,11 @@ jobs:
           prerelease: false
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Release Notes
         run: |
           npm install @octokit/rest
           node scripts/update-release.js
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

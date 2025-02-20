@@ -143,4 +143,5 @@ ${release.data.body || ''}`;
   }
 }
 
+
 updateReleaseNotes();
