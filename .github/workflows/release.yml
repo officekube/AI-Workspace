@@ -127,53 +127,47 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          
+
           echo "Available artifacts:"
           ls -la downloaded-artifacts/
-          
+
           for platform_dir in downloaded-artifacts/*; do
             if [ -d "$platform_dir" ]; then
               platform=$(basename "$platform_dir")
               echo "Processing platform directory: $platform"
-              
+
               # List contents of platform directory
               echo "Contents of $platform directory:"
               ls -la "$platform_dir"
-              
-              # Process files based on platform type
+
+              # Process files based on platform type - TARGETED FILENAMES
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
+                  find "$platform_dir" -type f \( -name "AI.Desktop-Setup-*.exe" \) -exec cp -v {} release-assets/ \;
                   ;;
-                  
+
                 *"macos"*)
                   echo "Processing macOS artifacts..."
-                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
+                  find "$platform_dir" -type f \( -name "AI.Desktop-*-arm64.dmg" -o -name "AI.Desktop-*-x64.dmg" \) -exec cp -v {} release-assets/ \;
                   ;;
-                  
+
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
-                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
-                  
-                  # If no specific package files found, try copying all executable files
-                  if [ ! "$(ls -A release-assets/)" ]; then
-                    echo "No specific package files found, copying all executable files..."
-                    find "$platform_dir" -type f -executable -exec cp -v {} release-assets/ \;
-                  fi
+                  find "$platform_dir" -type f \( -name "AI.Desktop-*-x86_64.AppImage" \) -exec cp -v {} release-assets/ \;
                   ;;
               esac
             fi
           done
-          
+
           echo "Final contents of release-assets:"
           ls -la release-assets/
-          
+
           # Verify we have files
           if [ -z "$(ls -A release-assets/)" ]; then
             echo "Error: No files were copied to release-assets!"
-            echo "Copying all files as fallback..."
-            find downloaded-artifacts -type f -exec cp -v {} release-assets/ \;
+            echo "Please check the build scripts and artifact consolidation logic."
+            exit 1 # Exit with an error if no release assets are found
           fi
 
       - name: Clean up Existing Release
