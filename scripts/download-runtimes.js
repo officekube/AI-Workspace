@@ -4,24 +4,18 @@ const path = require('path');
 const extract = require('extract-zip');
 const { spawn } = require('child_process');
 
-// const RUNTIME_VERSIONS = {
-//   python: '3.11.0',
-//   nodejs: '18.16.0',
-//   robotframework: '6.1.1',
-//   jupyter: '7.0.0'
-// };
-
+// Import runtimeVersions from package.json
 const packageJson = require(path.join(__dirname, '..', 'package.json'));
 const RUNTIME_VERSIONS = packageJson.runtimeVersions;
 
 const RUNTIME_URLS = {
   windows: {
     python: `https://www.python.org/ftp/python/${RUNTIME_VERSIONS.python}/python-${RUNTIME_VERSIONS.python}-amd64.exe`,
-    nodejs: `https://nodejs.org/dist/v${RUNTIME_VERSIONS.nodejs}/node-v${RUNTIME_VERSIONS.nodejs}-win-x64.zip`,
+    nodejs: `https://nodejs.org/dist/v${RUNTIME_VERSIONS.nodejs}/node-v${RUNTIME_VERSIONS.nodejs}-win-x64.zip`
   },
   macos: {
     python: `https://www.python.org/ftp/python/${RUNTIME_VERSIONS.python}/python-${RUNTIME_VERSIONS.python}-macos11.pkg`,
-    nodejs: `https://nodejs.org/dist/v${RUNTIME_VERSIONS.nodejs}/node-v${RUNTIME_VERSIONS.nodejs}-darwin-x64.tar.gz`,
+    nodejs: `https://nodejs.org/dist/v${RUNTIME_VERSIONS.nodejs}/node-v${RUNTIME_VERSIONS.nodejs}-darwin-x64.tar.gz`
   }
 };
 
@@ -53,9 +47,9 @@ function execCommand(command, options = {}) {
     const isWindows = process.platform === 'win32';
 
     if (isWindows) {
-      // Create a temporary batch file for Windows commands.
+      // Create a temporary batch file with "call" to avoid interactive prompts.
       const batchFile = path.join(RUNTIMES_DIR, 'temp.bat');
-      fs.writeFileSync(batchFile, `@echo off\n${command}\n`, 'utf8');
+      fs.writeFileSync(batchFile, `@echo off\ncall ${command}\n`, 'utf8');
 
       const proc = spawn('cmd', ['/S', '/C', batchFile], {
         ...options,
@@ -95,10 +89,8 @@ function execCommand(command, options = {}) {
       });
     } else {
       const proc = spawn('bash', ['-c', command], { ...options, shell: false });
-
       proc.stdout?.on('data', (data) => console.log(data.toString()));
       proc.stderr?.on('data', (data) => console.error(data.toString()));
-
       proc.on('close', (code) => {
         if (code === 0) {
           resolve();
@@ -106,7 +98,6 @@ function execCommand(command, options = {}) {
           reject(new Error(`Command failed with exit code ${code}`));
         }
       });
-
       proc.on('error', (err) => {
         reject(err);
       });
@@ -128,17 +119,16 @@ async function setupPython(platform) {
       await downloadFile(url, downloadPath);
 
       console.log('Installing Python...');
-      // Removed "start /wait" to avoid interactive prompt.
+      // Run the installer silently.
       await execCommand(`"${downloadPath}" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_pip=1 InstallLauncherAllUsers=0 TargetDir="${pythonDir}"`);
 
-      // Wait a bit for Python installation to complete.
+      // Wait a bit for installation.
       await new Promise(resolve => setTimeout(resolve, 5000));
 
       console.log('Creating virtual environment...');
       await execCommand(`"${path.join(pythonDir, 'python.exe')}" -m venv "${path.join(pythonDir,
         'venv')}"`);
 
-      // Wait a bit for venv creation to complete.
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       console.log('Installing Python packages...');
@@ -146,7 +136,6 @@ async function setupPython(platform) {
       await execCommand(`"${venvPython}" -m pip install --upgrade pip`);
       await execCommand(`"${venvPython}" -m pip install robotframework==${RUNTIME_VERSIONS.robotframework}`);
       await execCommand(`"${venvPython}" -m pip install notebook==${RUNTIME_VERSIONS.jupyter}`);
-
     } else {
       const venvPath = path.join(pythonDir, 'venv');
       await execCommand(`python3 -m venv "${venvPath}"`);
@@ -196,14 +185,11 @@ async function setupNodejs(platform) {
 
 async function main() {
   const platform = process.platform === 'darwin' ? 'macos' : 'windows';
-
   try {
     console.log('Setting up Python...');
     await setupPython(platform);
-
     console.log('Setting up Node.js...');
     await setupNodejs(platform);
-
     console.log('All runtimes downloaded and set up successfully!');
   }
   catch (error) {

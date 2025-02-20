@@ -11,22 +11,19 @@ async function updateReleaseNotes() {
   const version = packageJson.version;
   const repoUrl = packageJson.repository.url;
 
-  // Extract owner and repo from the repository URL
+  // Extract owner and repo from the repository URL.
   const [owner, repo] = repoUrl
   .replace('git+https://github.com/', '')
   .replace('.git', '')
   .split('/');
 
   try {
-    // Get the latest release
-    const release = await octokit.repos.getLatestRelease({
-      owner,
-      repo
-    });
+    // Get the latest release.
+    const release = await octokit.repos.getLatestRelease({ owner, repo });
 
-    // Find assets by matching parts of the name (case-insensitive)
+    // Filter assets using case-insensitive matching.
     const windowsAsset = release.data.assets.find(a =>
-      a.name.toLowerCase().includes('exe')
+      a.name.toLowerCase().endsWith('.exe')
     );
     const macIntelAsset = release.data.assets.find(a =>
       a.name.toLowerCase().includes('x64') && a.name.toLowerCase().endsWith('.dmg')
@@ -34,24 +31,31 @@ async function updateReleaseNotes() {
     const macArmAsset = release.data.assets.find(a =>
       a.name.toLowerCase().includes('arm64') && a.name.toLowerCase().endsWith('.dmg')
     );
-    // Adjust the search for Linux artifacts as needed (e.g., AppImage, deb, etc.)
     const linuxAsset = release.data.assets.find(a =>
-      a.name.toLowerCase().includes('appimage') || a.name.toLowerCase().endsWith('.deb')
+      a.name.toLowerCase().endsWith('.appimage') || a.name.toLowerCase().endsWith('.deb')
     );
 
-    const windowsDownloadUrl = windowsAsset ? windowsAsset.browser_download_url : 'N/A';
-    const macIntelDownloadUrl = macIntelAsset ? macIntelAsset.browser_download_url : 'N/A';
-    const macArmDownloadUrl = macArmAsset ? macArmAsset.browser_download_url : 'N/A';
-    const linuxDownloadUrl = linuxAsset ? linuxAsset.browser_download_url : 'N/A';
+    const windowsDownload = windowsAsset
+      ? `[Windows Installer](${windowsAsset.browser_download_url})`
+      : 'Windows Installer (not available)';
+    const macIntelDownload = macIntelAsset
+      ? `[macOS Installer (Intel)](${macIntelAsset.browser_download_url})`
+      : 'macOS Installer (Intel) (not available)';
+    const macArmDownload = macArmAsset
+      ? `[macOS Installer (Apple Silicon)](${macArmAsset.browser_download_url})`
+      : 'macOS Installer (Apple Silicon) (not available)';
+    const linuxDownload = linuxAsset
+      ? `[Linux Installer](${linuxAsset.browser_download_url})`
+      : 'Linux Installer (not available)';
 
-    // Generate markdown content for the release notes.
+    // Generate markdown content.
     const releaseNotes = `# Latest Release (v${version})
 
 ## Downloads
-- [Windows Installer](${windowsDownloadUrl})
-- [macOS Installer (Apple Silicon)](${macArmDownloadUrl})
-- [macOS Installer (Intel)](${macIntelDownloadUrl})
-- [Linux](${linuxDownloadUrl})
+- ${windowsDownload}
+- ${macArmDownload}
+- ${macIntelDownload}
+- ${linuxDownload}
 
 ## Included Runtimes
 - Python ${packageJson.runtimeVersions ? packageJson.runtimeVersions.python : 'N/A'}
@@ -61,10 +65,10 @@ async function updateReleaseNotes() {
 
 ${release.data.body}`;
 
-    // Write release notes locally
+    // Write release notes locally.
     fs.writeFileSync('RELEASE.md', releaseNotes);
 
-    // Try to get the current SHA of RELEASE.md (if it exists)
+    // Get the current SHA of RELEASE.md (if it exists).
     let sha;
     try {
       const { data } = await octokit.repos.getContent({
@@ -78,7 +82,7 @@ ${release.data.body}`;
       // File does not exist; leave sha undefined.
     }
 
-    // Commit or update the RELEASE.md file in the repository.
+    // Commit or update RELEASE.md.
     await octokit.repos.createOrUpdateFileContents({
       owner,
       repo,

@@ -7,64 +7,67 @@
     "start": "electron .",
     "download-runtimes": "node scripts/download-runtimes.js",
     "build": "npm run download-runtimes && electron-builder --x64 --arm64",
+    "build-mac-x64": "npm run download-runtimes && electron-builder --mac --x64",
+    "build-mac-arm64": "npm run download-runtimes && electron-builder --mac --arm64",
     "release": "electron-builder --publish always"
   },
   "build": {
-  "appId": "com.aidesktop.app",
-  "productName": "AI Desktop",
-  "asar": true,
-  "asarUnpack": [
-    "resources/runtimes/**/*"
-  ],
-  "directories": {
-    "output": "dist",
-    "buildResources": "build"
-  },
-  "files": [
-    "src/**/*",
-    "resources/**/*",
-    "package.json"
-  ],
-  "mac": {
-    "target": "dmg",
-    "universal": true,
-    "category": "public.app-category.developer-tools",
-    "darkModeSupport": true,
-    "hardenedRuntime": false,
-    "gatekeeperAssess": false,
-    "notarize": false,
-    "artifactName": "${productName}-${version}-${arch}.${ext}",
-    "identity": null
-  },
-  "dmg": {
-    "writeUpdateInfo": false,
-    "format": "UDZO"
-  },
-  "win": {
-    "target": [
-      {
-        "target": "nsis",
-        "arch": [
-          "x64"
-        ]
-      }
+    "appId": "com.aidesktop.app",
+    "productName": "AI Desktop",
+    "asar": true,
+    "asarUnpack": [
+      "resources/runtimes/**/*"
     ],
-    "artifactName": "${productName}-Setup-${version}.${ext}"
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "notarize": false,
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "identity": null
+    },
+    "dmg": {
+      "writeUpdateInfo": false,
+      "format": "UDZO"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "useZip": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
   },
-  "nsis": {
-    "oneClick": false,
-    "allowToChangeInstallationDirectory": true,
-    "useZip": true
-  },
-  "linux": {
-    "target": ["AppImage"],
-    "artifactName": "${productName}-${version}-${arch}.${ext}"
-  },
-  "publish": {
-    "provider": "github",
-    "releaseType": "release"
-  }
-},
   "runtimeVersions": {
     "python": "3.11.0",
     "nodejs": "18.16.0",
