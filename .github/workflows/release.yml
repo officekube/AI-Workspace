@@ -43,12 +43,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest
-            arch: x64
-          - os: macos-latest
-            arch: arm64
-          - os: windows-latest
-            arch: x64
           - os: ubuntu-latest
             arch: x64
     runs-on: ${{ matrix.os }}
@@ -165,6 +159,6 @@ jobs:
       - name: Update Release Notes
         run: |
           npm install @octokit/rest
-          node scripts/update-release.js
+          RELEASE_TAG=${{ needs.prepare-tag.outputs.tag }} node scripts/update-release.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

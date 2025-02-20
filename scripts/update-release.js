@@ -3,7 +3,7 @@ const path = require('path');
 const { Octokit } = require('@octokit/rest');
 
 const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN
+  auth: process.env.GH_TOKEN
 });
 
 async function updateReleaseNotes() {
@@ -13,51 +13,34 @@ async function updateReleaseNotes() {
 
   // Extract owner and repo from the repository URL
   const [owner, repo] = repoUrl
-  .replace('git+https://github.com/', '')
-  .replace('.git', '')
-  .split('/');
+    .replace('git+https://github.com/', '')
+    .replace('.git', '')
+    .split('/');
 
   try {
-    // Get all releases to find the draft release
-    const { data: releases } = await octokit.repos.listReleases({
-      owner,
-      repo
-    });
+    // Get the latest release by tag
+    const tag = process.env.RELEASE_TAG || `v${version}`;
+    console.log(`Looking for release with tag: ${tag}`);
 
-    // Find the draft release
-    const draftRelease = releases.find(release => release.draft);
-
-    if (!draftRelease) {
-      throw new Error('Draft release not found');
-    }
-
-    // Delete existing assets if they exist
-    for (const asset of draftRelease.assets) {
-      await octokit.repos.deleteReleaseAsset({
-        owner,
-        repo,
-        asset_id: asset.id
-      });
-    }
-
-    // Re-fetch release after deleting assets
-    const release = await octokit.repos.getRelease({
+    const { data: release } = await octokit.repos.getReleaseByTag({
       owner,
       repo,
-      release_id: draftRelease.id
+      tag
     });
 
+    console.log(`Found release with ID: ${release.id}`);
+
     // Filter assets using case-insensitive matching
-    const windowsAsset = release.data.assets.find(a =>
+    const windowsAsset = release.assets.find(a =>
       a.name.toLowerCase().endsWith('.exe')
     );
-    const macIntelAsset = release.data.assets.find(a =>
+    const macIntelAsset = release.assets.find(a =>
       a.name.toLowerCase().includes('x64') && a.name.toLowerCase().endsWith('.dmg')
     );
-    const macArmAsset = release.data.assets.find(a =>
+    const macArmAsset = release.assets.find(a =>
       a.name.toLowerCase().includes('arm64') && a.name.toLowerCase().endsWith('.dmg')
     );
-    const linuxAsset = release.data.assets.find(a =>
+    const linuxAsset = release.assets.find(a =>
       a.name.toLowerCase().endsWith('.appimage')
     );
 
@@ -90,16 +73,15 @@ async function updateReleaseNotes() {
 - Robot Framework ${packageJson.runtimeVersions?.robotframework || 'N/A'}
 - Jupyter Notebook ${packageJson.runtimeVersions?.jupyter || 'N/A'}
 
-${release.data.body || ''}`;
+${release.body || ''}`;
 
-    // Update the draft release
+    // Update the release
     await octokit.repos.updateRelease({
       owner,
       repo,
-      release_id: draftRelease.id,
-      draft: false,  // Convert from draft to published
+      release_id: release.id,
       body: releaseNotes,
-      tag_name: draftRelease.tag_name,
+      tag_name: release.tag_name,
       name: `Release v${version}`
     });
 
@@ -119,8 +101,7 @@ ${release.data.body || ''}`;
         content: Buffer.from(releaseNotes).toString('base64'),
         sha: existingFile.sha
       });
-    }
-    catch (error) {
+    } catch (error) {
       if (error.status === 404) {
         // File doesn't exist, create it
         await octokit.repos.createOrUpdateFileContents({
@@ -136,12 +117,13 @@ ${release.data.body || ''}`;
     }
 
     console.log('Release notes updated successfully!');
-  }
-  catch (error) {
-    console.error('Error updating release notes:', error);
+  } catch (error) {
+    console.error('Error updating release notes:', error.message);
+    if (error.response) {
+      console.error('API Response:', error.response.data);
+    }
     process.exit(1);
   }
 }
-
 
 updateReleaseNotes();
