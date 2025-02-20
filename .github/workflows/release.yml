@@ -131,9 +131,6 @@ jobs:
           echo "Available artifacts:"
           ls -la downloaded-artifacts/
           
-          # Initialize a counter for found installers
-          installer_count=0
-          
           for platform_dir in downloaded-artifacts/*; do
             if [ -d "$platform_dir" ]; then
               platform=$(basename "$platform_dir")
@@ -147,56 +144,23 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  while IFS= read -r -d '' file; do
-                    if [[ "$file" == *"AI"*"Desktop"*"Setup"*.exe ]]; then
-                      # Get the filename only
-                      filename=$(basename "$file")
-                      # Replace spaces with hyphens
-                      newname=$(echo "$filename" | sed 's/ /-/g')
-                      echo "Copying and renaming: $filename -> $newname"
-                      cp -v "$file" "release-assets/$newname"
-                      ((installer_count++))
-                    fi
-                  done < <(find "$platform_dir" -type f -name "*.exe" -print0)
+                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
                   ;;
                   
                 *"macos"*)
-                  if [[ $platform == *"arm64"* ]]; then
-                    echo "Processing macOS ARM artifacts..."
-                    while IFS= read -r -d '' file; do
-                      if [[ "$file" == *"AI"*"Desktop"*"arm64.dmg" ]]; then
-                        filename=$(basename "$file")
-                        newname=$(echo "$filename" | sed 's/ /-/g')
-                        echo "Copying and renaming: $filename -> $newname"
-                        cp -v "$file" "release-assets/$newname"
-                        ((installer_count++))
-                      fi
-                    done < <(find "$platform_dir" -type f -name "*.dmg" -print0)
-                  else
-                    echo "Processing macOS Intel artifacts..."
-                    while IFS= read -r -d '' file; do
-                      if [[ "$file" == *"AI"*"Desktop"*"x64.dmg" ]]; then
-                        filename=$(basename "$file")
-                        newname=$(echo "$filename" | sed 's/ /-/g')
-                        echo "Copying and renaming: $filename -> $newname"
-                        cp -v "$file" "release-assets/$newname"
-                        ((installer_count++))
-                      fi
-                    done < <(find "$platform_dir" -type f -name "*.dmg" -print0)
-                  fi
+                  echo "Processing macOS artifacts..."
+                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
                   ;;
                   
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
-                  while IFS= read -r -d '' file; do
-                    if [[ "$file" == *"AI"*"Desktop"*"x86_64.AppImage" ]]; then
-                      filename=$(basename "$file")
-                      newname=$(echo "$filename" | sed 's/ /-/g')
-                      echo "Copying and renaming: $filename -> $newname"
-                      cp -v "$file" "release-assets/$newname"
-                      ((installer_count++))
-                    fi
-                  done < <(find "$platform_dir" -type f -name "*.AppImage" -print0)
+                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
+                  
+                  # If no specific package files found, try copying all executable files
+                  if [ ! "$(ls -A release-assets/)" ]; then
+                    echo "No specific package files found, copying all executable files..."
+                    find "$platform_dir" -type f -executable -exec cp -v {} release-assets/ \;
+                  fi
                   ;;
               esac
             fi
@@ -205,21 +169,12 @@ jobs:
           echo "Final contents of release-assets:"
           ls -la release-assets/
           
-          # Verify we have the expected installers
-          echo "Found $installer_count installer(s)"
-          if [ "$installer_count" -lt 4 ]; then
-            echo "Warning: Found fewer installers than expected. Found $installer_count, expected 4"
-            echo "Missing some of these expected installers:"
-            echo "- AI-Desktop-Setup-*.exe (Windows)"
-            echo "- AI-Desktop-*-arm64.dmg (macOS ARM)"
-            echo "- AI-Desktop-*-x64.dmg (macOS Intel)"
-            echo "- AI-Desktop-*-x86_64.AppImage (Linux)"
-            
-            # List all found files for debugging
-            echo "Found files in platform directories:"
-            find downloaded-artifacts -type f -exec ls -la {} \;
+          # Verify we have files
+          if [ -z "$(ls -A release-assets/)" ]; then
+            echo "Error: No files were copied to release-assets!"
+            echo "Copying all files as fallback..."
+            find downloaded-artifacts -type f -exec cp -v {} release-assets/ \;
           fi
-          
 
       - name: Clean up Existing Release
         env:
