@@ -10,18 +10,24 @@ on:
     branches:
       - 'feature/**'
 
-# Grant sufficient permissions to work with releases
 permissions:
   contents: write
   issues: write
 
 jobs:
   release:
-    runs-on: ${{ matrix.os }}
-
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            arch: x64
+          - os: macos-latest
+            arch: arm64
+          - os: windows-latest
+            arch: x64
+          - os: ubuntu-latest
+            arch: x64
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -34,7 +40,6 @@ jobs:
         with:
           node-version: '18.x'
 
-      # Create package-lock.json if it doesn't exist
       - name: Create package-lock.json
         run: |
           if [ ! -f "package-lock.json" ]; then
@@ -47,7 +52,6 @@ jobs:
           fi
         shell: bash
 
-      # Setup cache after package-lock.json exists
       - name: Cache node modules
         uses: actions/cache@v3
         with:
@@ -81,7 +85,22 @@ jobs:
       - name: Build and Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
+        run: |
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            if [[ "${{ matrix.arch }}" == "x64" ]]; then
+              echo "Building macOS Intel installer"
+              npm run build-mac-x64
+            else
+              echo "Building macOS Apple Silicon installer"
+              npm run build-mac-arm64
+            fi
+          elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            echo "Building Windows installer"
+            npm run release
+          elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            echo "Building Linux installer"
+            npm run release
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -90,14 +109,16 @@ jobs:
           files: |
             dist/*.exe
             dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
           draft: false
           prerelease: false
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Release Notes
         if: matrix.os == 'macos-latest'
         run: node scripts/update-release.js
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
