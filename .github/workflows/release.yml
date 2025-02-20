@@ -15,7 +15,31 @@ permissions:
   issues: write
 
 jobs:
-  release:
+  prepare-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.set_tag.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set Tag Name for Testing
+        id: set_tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "::set-output name=tag::${GITHUB_REF##*/}"
+          else
+            TAG="v0.0.0-test-$(date +%s)"
+            echo "No tag detected. Creating test tag: $TAG"
+            git tag $TAG
+            git push origin $TAG
+            echo "::set-output name=tag::$TAG"
+          fi
+        shell: bash
+
+  build:
+    needs: prepare-tag
     strategy:
       matrix:
         include:
@@ -28,7 +52,6 @@ jobs:
           - os: ubuntu-latest
             arch: x64
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -66,23 +89,7 @@ jobs:
       - name: Download runtimes
         run: npm run download-runtimes
 
-      # For testing: if the workflow isn’t triggered by a tag, create a temporary tag.
-      - name: Set tag name for testing
-        id: set_tag_name
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "Detected tag: ${GITHUB_REF##*/}"
-            echo "::set-output name=tag::${GITHUB_REF##*/}"
-          else
-            TAG="v0.0.0-test-$(date +%s)"
-            echo "No tag detected. Creating test tag: $TAG"
-            git tag $TAG
-            git push origin $TAG
-            echo "::set-output name=tag::$TAG"
-          fi
-        shell: bash
-
-      - name: Build and Create Release
+      - name: Build Installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -102,10 +109,24 @@ jobs:
             npm run release
           fi
 
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/
+
+  update-release:
+    needs: [build, prepare-tag]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: dist
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.set_tag_name.outputs.tag }}
+          tag_name: ${{ needs.prepare-tag.outputs.tag }}
           files: |
             dist/*.exe
             dist/*.dmg
@@ -116,9 +137,7 @@ jobs:
           generate_release_notes: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Update Release Notes
-        if: matrix.os == 'macos-latest'
         run: node scripts/update-release.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

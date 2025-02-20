@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Octokit } = require('@octokit/rest');
 
+// Initialize Octokit with the GitHub token.
 const octokit = new Octokit({
   auth: process.env.GITHUB_TOKEN
 });
@@ -68,28 +69,30 @@ ${release.data.body}`;
     // Write release notes locally.
     fs.writeFileSync('RELEASE.md', releaseNotes);
 
-    // Get the current SHA of RELEASE.md (if it exists).
+    // Try to get the current SHA of RELEASE.md from the "main" branch.
     let sha;
     try {
       const { data } = await octokit.repos.getContent({
         owner,
         repo,
-        path: 'RELEASE.md'
+        path: 'RELEASE.md',
+        ref: 'main'
       });
       sha = data.sha;
     }
     catch (e) {
-      // File does not exist; leave sha undefined.
+      // File does not exist on the branch; leave sha undefined.
     }
 
-    // Commit or update RELEASE.md.
+    // Create or update RELEASE.md on the "main" branch.
     await octokit.repos.createOrUpdateFileContents({
       owner,
       repo,
       path: 'RELEASE.md',
       message: `Update release notes for v${version}`,
       content: Buffer.from(releaseNotes).toString('base64'),
-      sha
+      sha,
+      branch: 'main'
     });
 
     console.log('Release notes updated successfully!');
