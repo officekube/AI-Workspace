@@ -24,6 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Set Tag Name for Testing
         id: set_tag
         run: |
@@ -106,27 +107,68 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: .
-          merge-multiple: true
+          path: downloaded-artifacts
+          merge-multiple: false
+
+      - name: Debug Artifacts
+        run: |
+          echo "Contents of current directory:"
+          ls -R
+          echo "\nContents of downloaded-artifacts directory:"
+          ls -R downloaded-artifacts/
 
       - name: Consolidate Artifacts
+        shell: bash
         run: |
           mkdir -p release-assets
-          for d in build-*; do
-            if [ -d "$d" ]; then
-              echo "Processing directory: $d"
-              # Find all files (not directories) and copy them with prefix
-              find "$d" -type f -exec bash -c '
-                file="$1"
-                dir="$2"
-                prefix="$3"
-                filename=$(basename "$file")
-                cp "$file" "release-assets/${prefix}-${filename}"
-              ' _ {} "$d" "$d" \;
+          
+          echo "Available artifacts:"
+          ls -la downloaded-artifacts/
+          
+          for platform_dir in downloaded-artifacts/*; do
+            if [ -d "$platform_dir" ]; then
+              platform=$(basename "$platform_dir")
+              echo "Processing platform directory: $platform"
+              
+              # List contents of platform directory
+              echo "Contents of $platform directory:"
+              ls -la "$platform_dir"
+              
+              # Process files based on platform type
+              case "$platform" in
+                *"windows"*)
+                  echo "Processing Windows artifacts..."
+                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
+                  ;;
+                  
+                *"macos"*)
+                  echo "Processing macOS artifacts..."
+                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
+                  ;;
+                  
+                *"ubuntu"* | *"linux"*)
+                  echo "Processing Linux artifacts..."
+                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
+                  
+                  # If no specific package files found, try copying all executable files
+                  if [ ! "$(ls -A release-assets/)" ]; then
+                    echo "No specific package files found, copying all executable files..."
+                    find "$platform_dir" -type f -executable -exec cp -v {} release-assets/ \;
+                  fi
+                  ;;
+              esac
             fi
           done
-          echo "Contents of release-assets:"
+          
+          echo "Final contents of release-assets:"
           ls -la release-assets/
+          
+          # Verify we have files
+          if [ -z "$(ls -A release-assets/)" ]; then
+            echo "Error: No files were copied to release-assets!"
+            echo "Copying all files as fallback..."
+            find downloaded-artifacts -type f -exec cp -v {} release-assets/ \;
+          fi
 
       - name: Clean up Existing Release
         env:
@@ -148,11 +190,11 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.prepare-tag.outputs.tag }}
-          files: |
-            release-assets/*
+          files: release-assets/*
           draft: false
           prerelease: false
           generate_release_notes: true
+          fail_on_unmatched_files: false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
