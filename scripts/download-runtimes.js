@@ -95,6 +95,7 @@ function execCommand(command, options = {}) {
   });
 }
 
+
 async function setupPython(platform) {
   try {
     const pythonDir = path.join(RUNTIMES_DIR, 'python');

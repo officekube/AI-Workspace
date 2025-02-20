@@ -144,23 +144,23 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
+                  # Look for specific Windows installer pattern
+                  find "$platform_dir" -type f -name "AI.Desktop-Setup-*.exe" -exec cp -v {} release-assets/ \;
                   ;;
                   
                 *"macos"*)
-                  echo "Processing macOS artifacts..."
-                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
+                  if [[ $platform == *"arm64"* ]]; then
+                    echo "Processing macOS ARM artifacts..."
+                    find "$platform_dir" -type f -name "AI.Desktop-*-arm64.dmg" -exec cp -v {} release-assets/ \;
+                  else
+                    echo "Processing macOS Intel artifacts..."
+                    find "$platform_dir" -type f -name "AI.Desktop-*-x64.dmg" -exec cp -v {} release-assets/ \;
+                  fi
                   ;;
                   
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
-                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
-                  
-                  # If no specific package files found, try copying all executable files
-                  if [ ! "$(ls -A release-assets/)" ]; then
-                    echo "No specific package files found, copying all executable files..."
-                    find "$platform_dir" -type f -executable -exec cp -v {} release-assets/ \;
-                  fi
+                  find "$platform_dir" -type f -name "AI.Desktop-*-x86_64.AppImage" -exec cp -v {} release-assets/ \;
                   ;;
               esac
             fi
@@ -169,11 +169,12 @@ jobs:
           echo "Final contents of release-assets:"
           ls -la release-assets/
           
-          # Verify we have files
-          if [ -z "$(ls -A release-assets/)" ]; then
-            echo "Error: No files were copied to release-assets!"
-            echo "Copying all files as fallback..."
-            find downloaded-artifacts -type f -exec cp -v {} release-assets/ \;
+          # Verify we have the expected installers
+          expected_count=$(ls -1 release-assets/ | wc -l)
+          if [ "$expected_count" -lt 3 ]; then
+            echo "Warning: Found fewer installers than expected. Found $expected_count, expected at least 3"
+            echo "Contents of release-assets:"
+            ls -la release-assets/
           fi
 
       - name: Clean up Existing Release
