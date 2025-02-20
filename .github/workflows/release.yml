@@ -89,25 +89,29 @@ jobs:
       - name: Download runtimes
         run: npm run download-runtimes
 
-      - name: Build Installer
+      - name: Build macOS Intel Installer
+        if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            if [[ "${{ matrix.arch }}" == "x64" ]]; then
-              echo "Building macOS Intel installer"
-              npm run build-mac-x64
-            else
-              echo "Building macOS Apple Silicon installer"
-              npm run build-mac-arm64
-            fi
-          elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            echo "Building Windows installer"
-            npm run release
-          elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            echo "Building Linux installer"
-            npm run release
-          fi
+        run: npm run build-mac-x64
+
+      - name: Build macOS ARM Installer
+        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build-mac-arm64
+
+      - name: Build Windows Installer
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release
+
+      - name: Build Linux Installer
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
