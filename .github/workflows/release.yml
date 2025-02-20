@@ -131,6 +131,9 @@ jobs:
           echo "Available artifacts:"
           ls -la downloaded-artifacts/
           
+          # Initialize a counter for found installers
+          installer_count=0
+          
           for platform_dir in downloaded-artifacts/*; do
             if [ -d "$platform_dir" ]; then
               platform=$(basename "$platform_dir")
@@ -144,23 +147,30 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  # Look for specific Windows installer pattern
-                  find "$platform_dir" -type f -name "AI.Desktop-Setup-*.exe" -exec cp -v {} release-assets/ \;
+                  if find "$platform_dir" -type f -name "AI.Desktop-Setup-*.exe" -exec cp -v {} release-assets/ \; ; then
+                    ((installer_count++))
+                  fi
                   ;;
                   
                 *"macos"*)
                   if [[ $platform == *"arm64"* ]]; then
                     echo "Processing macOS ARM artifacts..."
-                    find "$platform_dir" -type f -name "AI.Desktop-*-arm64.dmg" -exec cp -v {} release-assets/ \;
+                    if find "$platform_dir" -type f -name "AI.Desktop-*-arm64.dmg" -exec cp -v {} release-assets/ \; ; then
+                      ((installer_count++))
+                    fi
                   else
                     echo "Processing macOS Intel artifacts..."
-                    find "$platform_dir" -type f -name "AI.Desktop-*-x64.dmg" -exec cp -v {} release-assets/ \;
+                    if find "$platform_dir" -type f -name "AI.Desktop-*-x64.dmg" -exec cp -v {} release-assets/ \; ; then
+                      ((installer_count++))
+                    fi
                   fi
                   ;;
                   
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
-                  find "$platform_dir" -type f -name "AI.Desktop-*-x86_64.AppImage" -exec cp -v {} release-assets/ \;
+                  if find "$platform_dir" -type f -name "AI.Desktop-*-x86_64.AppImage" -exec cp -v {} release-assets/ \; ; then
+                    ((installer_count++))
+                  fi
                   ;;
               esac
             fi
@@ -170,11 +180,14 @@ jobs:
           ls -la release-assets/
           
           # Verify we have the expected installers
-          expected_count=$(ls -1 release-assets/ | wc -l)
-          if [ "$expected_count" -lt 3 ]; then
-            echo "Warning: Found fewer installers than expected. Found $expected_count, expected at least 3"
-            echo "Contents of release-assets:"
-            ls -la release-assets/
+          echo "Found $installer_count installer(s)"
+          if [ "$installer_count" -lt 4 ]; then
+            echo "Warning: Found fewer installers than expected. Found $installer_count, expected 4"
+            echo "Missing some of these expected installers:"
+            echo "- AI.Desktop-Setup-*.exe (Windows)"
+            echo "- AI.Desktop-*-arm64.dmg (macOS ARM)"
+            echo "- AI.Desktop-*-x64.dmg (macOS Intel)"
+            echo "- AI.Desktop-*-x86_64.AppImage (Linux)"
           fi
 
       - name: Clean up Existing Release
