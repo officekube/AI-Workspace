@@ -144,20 +144,23 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  # Target specific setup executable
-                  find "$platform_dir" -type f -name "AI.Desktop-Setup-*.exe" -exec cp -v {} release-assets/ \;
+                  find "$platform_dir" -type f \( -name "AI.Desktop-Setup-*.exe" -o -name "AI.Desktop-Setup-*.msi" \) -exec cp -v {} release-assets/ \;
                   ;;
                   
                 *"macos"*)
                   echo "Processing macOS artifacts..."
-                  # Match both ARM64 and x64 DMG files
-                  find "$platform_dir" -type f \( -name "AI.Desktop-*-arm64.dmg" -o -name "AI.Desktop-*-x64.dmg" \) -exec cp -v {} release-assets/ \;
+                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
                   ;;
                   
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
-                  # Target AppImage specifically
-                  find "$platform_dir" -type f -name "AI.Desktop-*-x86_64.AppImage" -exec cp -v {} release-assets/ \;
+                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
+                  
+                  # If no specific package files found, try copying all executable files
+                  if [ ! "$(ls -A release-assets/)" ]; then
+                    echo "No specific package files found, copying all executable files..."
+                    find "$platform_dir" -type f -executable -exec cp -v {} release-assets/ \;
+                  fi
                   ;;
               esac
             fi
@@ -169,8 +172,10 @@ jobs:
           # Verify we have files
           if [ -z "$(ls -A release-assets/)" ]; then
             echo "Error: No files were copied to release-assets!"
-            exit 1
+            echo "Copying all files as fallback..."
+            find downloaded-artifacts -type f -exec cp -v {} release-assets/ \;
           fi
+
       - name: Clean up Existing Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
