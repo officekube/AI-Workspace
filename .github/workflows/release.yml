@@ -138,7 +138,7 @@ jobs:
             dist/*.dmg
             dist/*.AppImage
             dist/*.deb
-          draft: false
+          draft: true
           prerelease: false
           generate_release_notes: true
         env:

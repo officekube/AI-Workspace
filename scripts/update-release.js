@@ -11,17 +11,43 @@ async function updateReleaseNotes() {
   const version = packageJson.version;
   const repoUrl = packageJson.repository.url;
 
-  // Extract owner and repo from the repository URL.
+  // Extract owner and repo from the repository URL
   const [owner, repo] = repoUrl
   .replace('git+https://github.com/', '')
   .replace('.git', '')
   .split('/');
 
   try {
-    // Get the latest release.
-    const release = await octokit.repos.getLatestRelease({ owner, repo });
+    // Get all releases to find the draft release
+    const { data: releases } = await octokit.repos.listReleases({
+      owner,
+      repo
+    });
 
-    // Filter assets using case-insensitive matching.
+    // Find the draft release
+    const draftRelease = releases.find(release => release.draft);
+
+    if (!draftRelease) {
+      throw new Error('Draft release not found');
+    }
+
+    // Delete existing assets if they exist
+    for (const asset of draftRelease.assets) {
+      await octokit.repos.deleteReleaseAsset({
+        owner,
+        repo,
+        asset_id: asset.id
+      });
+    }
+
+    // Re-fetch release after deleting assets
+    const release = await octokit.repos.getRelease({
+      owner,
+      repo,
+      release_id: draftRelease.id
+    });
+
+    // Filter assets using case-insensitive matching
     const windowsAsset = release.data.assets.find(a =>
       a.name.toLowerCase().endsWith('.exe')
     );
@@ -32,9 +58,10 @@ async function updateReleaseNotes() {
       a.name.toLowerCase().includes('arm64') && a.name.toLowerCase().endsWith('.dmg')
     );
     const linuxAsset = release.data.assets.find(a =>
-      a.name.toLowerCase().endsWith('.appimage') || a.name.toLowerCase().endsWith('.deb')
+      a.name.toLowerCase().endsWith('.appimage')
     );
 
+    // Generate download links
     const windowsDownload = windowsAsset
       ? `[Windows Installer](${windowsAsset.browser_download_url})`
       : 'Windows Installer (not available)';
@@ -48,7 +75,7 @@ async function updateReleaseNotes() {
       ? `[Linux Installer](${linuxAsset.browser_download_url})`
       : 'Linux Installer (not available)';
 
-    // Generate markdown content.
+    // Generate markdown content
     const releaseNotes = `# Latest Release (v${version})
 
 ## Downloads
@@ -58,39 +85,55 @@ async function updateReleaseNotes() {
 - ${linuxDownload}
 
 ## Included Runtimes
-- Python ${packageJson.runtimeVersions ? packageJson.runtimeVersions.python : 'N/A'}
-- Node.js ${packageJson.runtimeVersions ? packageJson.runtimeVersions.nodejs : 'N/A'}
-- Robot Framework ${packageJson.runtimeVersions ? packageJson.runtimeVersions.robotframework : 'N/A'}
-- Jupyter Notebook ${packageJson.runtimeVersions ? packageJson.runtimeVersions.jupyter : 'N/A'}
+- Python ${packageJson.runtimeVersions?.python || 'N/A'}
+- Node.js ${packageJson.runtimeVersions?.nodejs || 'N/A'}
+- Robot Framework ${packageJson.runtimeVersions?.robotframework || 'N/A'}
+- Jupyter Notebook ${packageJson.runtimeVersions?.jupyter || 'N/A'}
 
-${release.data.body}`;
+${release.data.body || ''}`;
 
-    // Write release notes locally.
-    fs.writeFileSync('RELEASE.md', releaseNotes);
+    // Update the draft release
+    await octokit.repos.updateRelease({
+      owner,
+      repo,
+      release_id: draftRelease.id,
+      draft: false,  // Convert from draft to published
+      body: releaseNotes,
+      tag_name: draftRelease.tag_name,
+      name: `Release v${version}`
+    });
 
-    // Get the current SHA of RELEASE.md (if it exists).
-    let sha;
+    // Update RELEASE.md
     try {
-      const { data } = await octokit.repos.getContent({
+      const { data: existingFile } = await octokit.repos.getContent({
         owner,
         repo,
         path: 'RELEASE.md'
       });
-      sha = data.sha;
-    }
-    catch (e) {
-      // File does not exist; leave sha undefined.
-    }
 
-    // Commit or update RELEASE.md.
-    await octokit.repos.createOrUpdateFileContents({
-      owner,
-      repo,
-      path: 'RELEASE.md',
-      message: `Update release notes for v${version}`,
-      content: Buffer.from(releaseNotes).toString('base64'),
-      sha
-    });
+      await octokit.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path: 'RELEASE.md',
+        message: `Update release notes for v${version}`,
+        content: Buffer.from(releaseNotes).toString('base64'),
+        sha: existingFile.sha
+      });
+    }
+    catch (error) {
+      if (error.status === 404) {
+        // File doesn't exist, create it
+        await octokit.repos.createOrUpdateFileContents({
+          owner,
+          repo,
+          path: 'RELEASE.md',
+          message: `Create release notes for v${version}`,
+          content: Buffer.from(releaseNotes).toString('base64')
+        });
+      } else {
+        throw error;
+      }
+    }
 
     console.log('Release notes updated successfully!');
   }
