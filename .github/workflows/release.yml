@@ -118,20 +118,21 @@ jobs:
       - name: Consolidate Artifacts
         run: |
           mkdir -p release-assets
-          # For each artifact folder, find and copy all files (including those in subdirectories)
-          for d in $(find . -maxdepth 1 -type d -name 'build-*'); do
-            echo "Processing artifact folder: $d"
-            prefix=$(basename "$d")
-            # Create a temporary directory for this build
-            mkdir -p "release-assets/$prefix"
-            # Copy all files, preserving directory structure
-            cp -r "$d"/* "release-assets/$prefix"/ || true
-            # Flatten the directory structure if needed
-            find "release-assets/$prefix" -type f -exec mv {} "release-assets/" \;
-            # Clean up the temporary directory
-            rm -rf "release-assets/$prefix"
+          for d in build-*; do
+            if [ -d "$d" ]; then
+              echo "Processing directory: $d"
+              # Find all files (not directories) and copy them with prefix
+              find "$d" -type f -exec bash -c '
+                file="$1"
+                dir="$2"
+                prefix="$3"
+                filename=$(basename "$file")
+                cp "$file" "release-assets/${prefix}-${filename}"
+              ' _ {} "$d" "$d" \;
+            fi
           done
-          ls -l release-assets
+          echo "Contents of release-assets:"
+          ls -la release-assets/
 
       - name: Clean up Existing Release
         env:
