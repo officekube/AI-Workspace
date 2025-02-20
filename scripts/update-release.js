@@ -103,4 +103,5 @@ ${release.data.body}`;
   }
 }
 
+
 updateReleaseNotes();
