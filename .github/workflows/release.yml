@@ -144,17 +144,35 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  find "$platform_dir" -type f \( -name "AI.Desktop-Setup-*.exe" \) -exec cp -v {} release-assets/ \;
+                  WINDOWS_FILES=$(find "$platform_dir" -type f -name "AI.Desktop-Setup-*.exe")
+                  if [[ -n "$WINDOWS_FILES" ]]; then
+                    echo "Found Windows files: $WINDOWS_FILES"
+                    find "$platform_dir" -type f -name "AI.Desktop-Setup-*.exe" -exec cp -v {} release-assets/ \;
+                  else
+                    echo "No Windows files found matching pattern."
+                  fi
                   ;;
 
                 *"macos"*)
                   echo "Processing macOS artifacts..."
-                  find "$platform_dir" -type f \( -name "AI.Desktop-*-arm64.dmg" -o -name "AI.Desktop-*-x64.dmg" \) -exec cp -v {} release-assets/ \;
+                  MACOS_FILES=$(find "$platform_dir" -type f \( -name "AI.Desktop-*-arm64.dmg" -o -name "AI.Desktop-*-x64.dmg" \))
+                  if [[ -n "$MACOS_FILES" ]]; then
+                    echo "Found macOS files: $MACOS_FILES"
+                    find "$platform_dir" -type f \( -name "AI.Desktop-*-arm64.dmg" -o -name "AI.Desktop-*-x64.dmg" \) -exec cp -v {} release-assets/ \;
+                  else
+                    echo "No macOS files found matching pattern."
+                  fi
                   ;;
 
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
-                  find "$platform_dir" -type f \( -name "AI.Desktop-*-x86_64.AppImage" \) -exec cp -v {} release-assets/ \;
+                  LINUX_FILES=$(find "$platform_dir" -type f -name "AI.Desktop-*-x86_64.AppImage")
+                  if [[ -n "$LINUX_FILES" ]]; then
+                    echo "Found Linux files: $LINUX_FILES"
+                    find "$platform_dir" -type f -name "AI.Desktop-*-x86_64.AppImage" -exec cp -v {} release-assets/ \;
+                  else
+                    echo "No Linux files found matching pattern."
+                  fi
                   ;;
               esac
             fi
@@ -169,6 +187,7 @@ jobs:
             echo "Please check the build scripts and artifact consolidation logic."
             exit 1 # Exit with an error if no release assets are found
           fi
+
 
       - name: Clean up Existing Release
         env:
