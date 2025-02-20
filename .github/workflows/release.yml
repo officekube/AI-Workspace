@@ -109,28 +109,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Download each artifact into its own folder.
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
           path: .
+          merge-multiple: true
 
-      # Consolidate artifacts into a single folder with unique names.
       - name: Consolidate Artifacts
         run: |
           mkdir -p release-assets
+          # For each artifact folder, find all regular files and copy them with a unique prefix.
           for d in $(find . -maxdepth 1 -type d -name 'build-*'); do
-            for f in "$d"/*; do
+            echo "Processing artifact folder: $d"
+            find "$d" -type f | while read -r f; do
               base=$(basename "$f")
-              # Prefix the file name with the artifact folder name to ensure uniqueness.
-              cp "$f" "release-assets/${d}-${base}"
+              prefix=$(basename "$d")
+              cp "$f" "release-assets/${prefix}-${base}"
             done
           done
+          ls -l release-assets
 
-      - name: List Consolidated Files
-        run: ls -l release-assets
-
-      - name: Clean up existing release
+      - name: Clean up Existing Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
