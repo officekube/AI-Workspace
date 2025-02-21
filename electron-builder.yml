@@ -38,7 +38,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: AI Desktop
+  shortcutName: OfficeKube AI Workspace
 
 dmg:
   contents:

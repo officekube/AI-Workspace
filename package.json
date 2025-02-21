@@ -9,11 +9,13 @@
     "build": "npm run download-runtimes && electron-builder --x64 --arm64",
     "build-mac-x64": "npm run download-runtimes && electron-builder --mac --x64",
     "build-mac-arm64": "npm run download-runtimes && electron-builder --mac --arm64",
+    "full-build-win-x64": "npm run download-runtimes && electron-builder --win --x64",
+    "build-win-x64": "electron-builder --win --x64",
     "release": "electron-builder --publish always"
   },
   "build": {
     "appId": "com.aidesktop.app",
-    "productName": "AI Desktop",
+    "productName": "OfficeKube AI Workspace",
     "asar": true,
     "asarUnpack": [
       "resources/runtimes/**/*"
@@ -55,7 +57,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "useZip": true
+      "useZip": false
     },
     "linux": {
       "target": [
@@ -69,7 +71,7 @@
     }
   },
   "runtimeVersions": {
-    "python": "3.11.0",
+    "python": "3.12.0",
     "nodejs": "18.16.0",
     "robotframework": "6.1.1",
     "jupyter": "7.0.0"
