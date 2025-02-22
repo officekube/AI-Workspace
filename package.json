@@ -1,0 +1,94 @@
+{
+  "name": "ai-desktop",
+  "version": "1.0.0",
+  "description": "AI Desktop Application with bundled runtimes",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "download-runtimes": "node scripts/download-runtimes.js",
+    "build": "electron-builder --x64 --arm64",
+    "build-mac-x64": "electron-builder --mac --x64",
+    "build-mac-arm64": "electron-builder --mac --arm64",
+    "build-win-x64": "electron-builder --win --x64",
+    "release": "electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.aidesktop.app",
+    "productName": "OfficeKube AI Workspace",
+    "asar": true,
+    "asarUnpack": [
+      "resources/runtimes/**/*"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "notarize": false,
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "identity": null
+    },
+    "dmg": {
+      "writeUpdateInfo": false,
+      "format": "UDZO"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "useZip": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  },
+  "runtimeVersions": {
+    "python": "3.12.0",
+    "nodejs": "18.16.0",
+    "robotframework": "6.1.1",
+    "jupyter": "7.0.0"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.0"
+  },
+  "devDependencies": {
+    "@octokit/rest": "^19.0.7",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0",
+    "axios": "^1.6.0",
+    "extract-zip": "^2.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/officekube/AI-Workspace.git"
+  },
+  "author": "",
+  "license": "MIT"
+}

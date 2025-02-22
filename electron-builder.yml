@@ -1,0 +1,54 @@
+appId: com.aidesktop.app
+productName: AI Desktop
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**/*
+  - resources/**/*
+  - "!resources/runtimes/**/*"
+  - package.json
+
+extraResources:
+  - from: resources/runtimes
+    to: runtimes
+    filter:
+      - "**/*"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OfficeKube AI Workspace
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+publish:
+  provider: github
+  releaseType: release
