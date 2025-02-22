@@ -86,7 +86,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
+        run: npm run build-win-x64
 
       - name: Build Linux Installer
         if: matrix.os == 'ubuntu-latest'
@@ -94,11 +94,36 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
 
-      - name: Upload Build Artifact
+      - name: Upload Build MacOs Artifact
+        if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/
+          path: |
+            dist/*.dmg
+            dist/*.pkg
+          retention-days: 5
+
+      - name: Upload Build Windows Artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.exe
+            dist/*.msi
+          retention-days: 5
+
+      - name: Upload Build Linux Artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.deb 
+            dist/*.rpm
+            dist/*.AppImage
+            dist/*.appimage
           retention-days: 5
 
   update-release:
@@ -144,7 +169,7 @@ jobs:
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
-                  find "$platform_dir" -type f \( -name "AI Desktop-Setup-*.exe" -o -name "AI Desktop-Setup-*.msi" \) -exec cp -v {} release-assets/ \;
+                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
                   ;;
                   
                 *"macos"*)
