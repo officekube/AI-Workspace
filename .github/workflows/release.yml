@@ -127,7 +127,7 @@ jobs:
           retention-days: 5
 
   update-release:
-    needs: [build, prepare-tag]
+    needs: [ build, prepare-tag ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -160,27 +160,27 @@ jobs:
             if [ -d "$platform_dir" ]; then
               platform=$(basename "$platform_dir")
               echo "Processing platform directory: $platform"
-              
+          
               # List contents of platform directory
               echo "Contents of $platform directory:"
               ls -la "$platform_dir"
-              
+          
               # Process files based on platform type
               case "$platform" in
                 *"windows"*)
                   echo "Processing Windows artifacts..."
                   find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
                   ;;
-                  
+          
                 *"macos"*)
                   echo "Processing macOS artifacts..."
                   find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
                   ;;
-                  
+          
                 *"ubuntu"* | *"linux"*)
                   echo "Processing Linux artifacts..."
                   find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
-                  
+          
                   # If no specific package files found, try copying all executable files
                   if [ ! "$(ls -A release-assets/)" ]; then
                     echo "No specific package files found, copying all executable files..."
@@ -222,9 +222,9 @@ jobs:
         with:
           tag_name: ${{ needs.prepare-tag.outputs.tag }}
           files: release-assets/*
+          body_path: release-notes.md
           draft: false
           prerelease: false
-          generate_release_notes: true
           fail_on_unmatched_files: false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -235,3 +235,12 @@ jobs:
           RELEASE_TAG=${{ needs.prepare-tag.outputs.tag }} node scripts/update-release.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Include UI Binary Links in Release
+        run: |
+          # Copy RELEASE.md content to release notes
+          cat RELEASE.md >> release-notes.md
+          
+          # Use release-notes.md in the release creation step
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
