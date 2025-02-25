@@ -1,0 +1,67 @@
+name: Fetch UI Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ui_version:
+        description: 'UI version to fetch' #(leave empty for latest)
+        required: false
+        type: string
+  schedule:
+    - cron: '0 0 * * 1'  # Weekly on Mondays
+
+jobs:
+  fetch-and-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch UI Release Info
+        id: fetch-release
+        run: |
+          if [ -z "${{ github.event.inputs.ui_version }}" ]; then
+            # Get latest release
+            RELEASE_DATA=$(curl -s https://api.github.com/repos/officekube/wsp-desktop-ui/releases/latest)
+          else
+            # Get specific release
+            RELEASE_DATA=$(curl -s https://api.github.com/repos/officekube/wsp-desktop-ui/releases/tags/${{ github.event.inputs.ui_version }})
+          fi
+          
+          # Extract release info
+          TAG=$(echo $RELEASE_DATA | jq -r .tag_name)
+          RELEASE_NAME=$(echo $RELEASE_DATA | jq -r .name)
+          BODY=$(echo $RELEASE_DATA | jq -r .body)
+          ASSETS=$(echo $RELEASE_DATA | jq -r '.assets[] | {name: .name, url: .browser_download_url, size: .size}')
+          
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          
+          # Create RELEASE.md file with updated content
+          cat > RELEASE.md << EOF
+          # $RELEASE_NAME
+          
+          > This is a release of OfficeKube WSP Desktop UI $TAG
+          
+          ## Release Notes
+          
+          $BODY
+          
+          ## Downloads
+          
+          $(echo "$ASSETS" | jq -r '. | "- [\(.name)](\(.url)) - \(.size | . / 1048576 | round | tostring) MB"')
+          
+          ---
+          *This release is synchronized from the [wsp-desktop-ui repository](https://github.com/officekube/wsp-desktop-ui/releases/tag/$TAG).*
+          EOF
+          
+          cat RELEASE.md
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          
+          git add RELEASE.md
+          git commit -m "Update RELEASE.md with UI version ${{ steps.fetch-release.outputs.tag }}"
+          git push
