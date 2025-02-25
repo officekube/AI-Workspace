@@ -38,8 +38,8 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
           
-          # Create RELEASE.md file with updated content
-          cat > RELEASE.md << EOF
+          # Create deploy.md file with updated content
+          cat > deploy.md << EOF
           # $RELEASE_NAME
           
           > This is a release of OfficeKube WSP Desktop UI $TAG
@@ -56,4 +56,4 @@ jobs:
           *This release is synchronized from the [wsp-desktop-ui repository](https://github.com/officekube/wsp-desktop-ui/releases/tag/$TAG).*
           EOF
           
-          cat RELEASE.md
+          cat deploy.md
