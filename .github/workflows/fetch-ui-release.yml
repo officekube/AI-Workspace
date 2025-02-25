@@ -34,6 +34,7 @@ jobs:
           BODY=$(echo $RELEASE_DATA | jq -r .body)
           ASSETS=$(echo $RELEASE_DATA | jq -r '.assets[] | {name: .name, url: .browser_download_url, size: .size}')
           
+          echo "\$RELEASE_DATA"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
           
