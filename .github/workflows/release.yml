@@ -1,246 +1,71 @@
-name: Build and Release
-
-on:
-  push:
-    tags:
-      - 'v*'
-    branches:
-      - 'feature/**'
-  pull_request:
-    branches:
-      - 'feature/**'
+name: Fetch UI Release
 
 permissions:
   contents: write
-  issues: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      ui_version:
+        description: 'UI version to fetch' #(leave empty for latest)
+        required: false
+        type: string
+  schedule:
+    - cron: '0 0 * * 1'  # Weekly on Mondays
 
 jobs:
-  prepare-tag:
+  fetch-and-update:
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.set_tag.outputs.tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set Tag Name for Testing
-        id: set_tag
+      - name: Fetch UI Release Info
+        id: fetch-release
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+          if [ -z "${{ github.event.inputs.ui_version }}" ]; then
+            # Get latest release
+            RELEASE_DATA=$(curl -s https://api.github.com/repos/officekube/wsp-desktop-ui/releases/latest)
           else
-            TAG="v0.0.0-test-$(date +%s)"
-            echo "No tag detected. Using tag: $TAG"
-            git tag $TAG
-            git push origin $TAG
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            # Get specific release
+            RELEASE_DATA=$(curl -s https://api.github.com/repos/officekube/wsp-desktop-ui/releases/tags/${{ github.event.inputs.ui_version }})
           fi
-        shell: bash
+          
+          # Extract release info
+          TAG=$(echo $RELEASE_DATA | jq -r .tag_name)
+          RELEASE_NAME=$(echo $RELEASE_DATA | jq -r .name)
+          BODY=$(echo $RELEASE_DATA | jq -r .body)
+          ASSETS=$(echo $RELEASE_DATA | jq -r '.assets[] | {name: .name, url: .browser_download_url, size: .size}')
+          
+          echo "\$RELEASE_DATA"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          
+          # Create RELEASE.md file with updated content
+          cat > RELEASE.md << EOF
+          # $RELEASE_NAME
+          
+          > This is a release of OfficeKube WSP Desktop UI $TAG
+          
+          ## Release Notes
+          
+          $BODY
+          
+          ## Downloads
+          
+          $(echo "$ASSETS" | jq -r '. | "- [\(.name)](\(.url)) - \(.size | . / 1048576 | round | tostring) MB"')
+          
+          ---
+          *This release is synchronized from the [wsp-desktop-ui repository](https://github.com/officekube/wsp-desktop-ui/releases/tag/$TAG).*
+          EOF
+          
+          cat RELEASE.md
 
-  build:
-    needs: prepare-tag
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            arch: x64
-          - os: windows-latest
-            arch: x64
-          - os: macos-latest
-            arch: x64
-          - os: macos-latest
-            arch: arm64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18.x'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Download runtimes
-        run: npm run download-runtimes
-
-      - name: Build macOS Intel Installer
-        if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-x64
-
-      - name: Build macOS ARM Installer
-        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-arm64
-
-      - name: Build Windows Installer
-        if: matrix.os == 'windows-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-win-x64
-
-      - name: Build Linux Installer
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
-
-      - name: Upload Build MacOs Artifact
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/*.dmg
-            dist/*.pkg
-          retention-days: 5
-
-      - name: Upload Build Windows Artifact
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/*.exe
-            dist/*.msi
-          retention-days: 5
-
-      - name: Upload Build Linux Artifact
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/*.deb 
-            dist/*.rpm
-            dist/*.AppImage
-            dist/*.appimage
-          retention-days: 5
-
-  update-release:
-    needs: [ build, prepare-tag ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: downloaded-artifacts
-          merge-multiple: false
-
-      - name: Debug Artifacts
+      - name: Commit and Push Changes
         run: |
-          echo "Contents of current directory:"
-          ls -R
-          echo "\nContents of downloaded-artifacts directory:"
-          ls -R downloaded-artifacts/
-
-      - name: Consolidate Artifacts
-        shell: bash
-        run: |
-          mkdir -p release-assets
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
           
-          echo "Available artifacts:"
-          ls -la downloaded-artifacts/
-          
-          for platform_dir in downloaded-artifacts/*; do
-            if [ -d "$platform_dir" ]; then
-              platform=$(basename "$platform_dir")
-              echo "Processing platform directory: $platform"
-          
-              # List contents of platform directory
-              echo "Contents of $platform directory:"
-              ls -la "$platform_dir"
-          
-              # Process files based on platform type
-              case "$platform" in
-                *"windows"*)
-                  echo "Processing Windows artifacts..."
-                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
-                  ;;
-          
-                *"macos"*)
-                  echo "Processing macOS artifacts..."
-                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
-                  ;;
-          
-                *"ubuntu"* | *"linux"*)
-                  echo "Processing Linux artifacts..."
-                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
-          
-                  # If no specific package files found, try copying all executable files
-                  if [ ! "$(ls -A release-assets/)" ]; then
-                    echo "No specific package files found, copying all executable files..."
-                    find "$platform_dir" -type f -executable -exec cp -v {} release-assets/ \;
-                  fi
-                  ;;
-              esac
-            fi
-          done
-          
-          echo "Final contents of release-assets:"
-          ls -la release-assets/
-          
-          # Verify we have files
-          if [ -z "$(ls -A release-assets/)" ]; then
-            echo "Error: No files were copied to release-assets!"
-            echo "Copying all files as fallback..."
-            find downloaded-artifacts -type f -exec cp -v {} release-assets/ \;
-          fi
-
-      - name: Clean up Existing Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ needs.prepare-tag.outputs.tag }}"
-          echo "Cleaning up release for tag $TAG..."
-          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-            | jq -r '.id')
-          if [ "$RELEASE_ID" != "null" ]; then
-            echo "Deleting existing release..."
-            curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
-            sleep 2
-          fi
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.prepare-tag.outputs.tag }}
-          files: release-assets/*
-          body_path: release-notes.md
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: false
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update Release Notes
-        run: |
-          npm install @octokit/rest
-          RELEASE_TAG=${{ needs.prepare-tag.outputs.tag }} node scripts/update-release.js
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Include UI Binary Links in Release
-        run: |
-          # Copy RELEASE.md content to release notes
-          cat RELEASE.md >> release-notes.md
-          
-          # Use release-notes.md in the release creation step
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git add RELEASE.md
+          git commit -m "Update RELEASE.md with UI version ${{ steps.fetch-release.outputs.tag }}"
+          git push
