@@ -56,12 +56,3 @@ jobs:
           EOF
           
           cat RELEASE.md
-
-      - name: Commit and Push Changes
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          
-          git add RELEASE.md
-          git commit -m "Update RELEASE.md with UI version ${{ steps.fetch-release.outputs.tag }}"
-          git push
