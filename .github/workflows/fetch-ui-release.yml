@@ -64,4 +64,5 @@ jobs:
           
           git add RELEASE.md
           git commit -m "Update RELEASE.md with UI version ${{ steps.fetch-release.outputs.tag }}"
+          git remote set-url origin https://x-access-token:${{ secrets.WSP_UI_ACCESS_TOKEN }}@github.com/officekube/AI-Workspace.git
           git push
