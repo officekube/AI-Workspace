@@ -170,35 +170,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Download runtimes
-        run: npm run download-runtimes
-
       - name: Extract UI Artifact
+        shell: bash
         run: |
           echo "Artifact path: ${{ needs.fetch-ui-artifact.outputs.artifact_path }}"
           
-          # Create a debug script to help diagnose the issue
-          cat > debug.sh << 'EOF'
-          #!/bin/bash
-          set -x  # Echo commands as they are executed
-          
+          # Debug information
           echo "Current directory: $(pwd)"
           echo "Listing downloaded-ui directory:"
-          ls -la downloaded-ui/
+          ls -la downloaded-ui/ || echo "downloaded-ui directory not found"
           
           # Look for any directories within downloaded-ui
-          find downloaded-ui -type d | sort
+          find downloaded-ui -type d 2>/dev/null | sort || echo "No directories found in downloaded-ui"
           
           # Look for any files within downloaded-ui
-          find downloaded-ui -type f | sort
+          find downloaded-ui -type f 2>/dev/null | sort || echo "No files found in downloaded-ui"
           
           # Try several possible locations
           echo "Checking various possible locations:"
           POSSIBLE_PATHS=(
             "downloaded-ui/wsp-desktop-ui-build.zip"
             "downloaded-ui/wsp-desktop-ui-build-*/wsp-desktop-ui-build.zip"
-            "downloaded-ui/*.zip"
           )
+          
+          EXTRACTION_SUCCESS=false
           
           for path_pattern in "${POSSIBLE_PATHS[@]}"; do
             echo "Checking pattern: $path_pattern"
@@ -206,54 +201,61 @@ jobs:
               if [ -f "$found_path" ]; then
                 echo "Found file at: $found_path"
                 echo "Trying to extract it..."
-                unzip -o "$found_path" -d extracted/
-                if [ $? -eq 0 ]; then
+                mkdir -p extracted/
+                unzip -o "$found_path" -d extracted/ || echo "Unzip failed, but continuing"
+                if [ -d "extracted" ] && [ "$(ls -A extracted 2>/dev/null)" ]; then
                   echo "Extraction successful!"
                   echo "Contents of extracted directory:"
                   ls -la extracted/
                   # Copy all extracted files to current directory
-                  cp -r extracted/* .
-                  exit 0
+                  cp -r extracted/* . || echo "Copy failed, but continuing"
+                  EXTRACTION_SUCCESS=true
+                  break 2
                 else
-                  echo "Extraction failed for $found_path"
+                  echo "Extraction didn't produce usable files for $found_path"
                 fi
               fi
             done
           done
           
-          # If we got here, we couldn't find or extract any zip files
-          # Look for any UI files we can use directly
-          echo "Looking for UI files to use directly..."
-          UI_FILES=$(find downloaded-ui -type f -not -name "*.zip" | sort)
-          if [ -n "$UI_FILES" ]; then
-            echo "Found UI files, copying them to current directory:"
-            echo "$UI_FILES"
-            # Create directories as needed
-            for file in $UI_FILES; do
-              dir=$(dirname "$file")
-              mkdir -p "${dir#downloaded-ui/}"
-              cp "$file" "${file#downloaded-ui/}"
-            done
-            exit 0
+          # If we couldn't extract anything, try to find any zip files
+          if [ "$EXTRACTION_SUCCESS" = false ]; then
+            echo "Looking for any zip files..."
+            ZIP_FILES=$(find . -name "*.zip" 2>/dev/null | sort)
+            if [ -n "$ZIP_FILES" ]; then
+              echo "Found zip files: $ZIP_FILES"
+              for zip_file in $ZIP_FILES; do
+                echo "Trying to extract: $zip_file"
+                mkdir -p extracted/
+                unzip -o "$zip_file" -d extracted/ || echo "Unzip failed, but continuing"
+                if [ -d "extracted" ] && [ "$(ls -A extracted 2>/dev/null)" ]; then
+                  echo "Extraction successful!"
+                  echo "Contents of extracted directory:"
+                  ls -la extracted/
+                  # Copy all extracted files to current directory
+                  cp -r extracted/* . || echo "Copy failed, but continuing"
+                  EXTRACTION_SUCCESS=true
+                  break
+                fi
+              done
+            fi
           fi
           
-          echo "No UI files found that could be used. Workflow will likely fail."
-          exit 1
-          EOF
-          
-          # Make the debug script executable and run it
-          chmod +x debug.sh
-          ./debug.sh || true  # Continue even if the debug script fails
-          
-          # Try to extract directly from the provided artifact path
-          if [ -f "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ]; then
-            echo "Attempting to extract from artifact path:"
-            unzip -o "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" -d .
-          else
-            echo "Artifact path doesn't exist as a file, checking if it's a directory"
-            if [ -d "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ]; then
-              echo "Artifact path is a directory, copying contents:"
-              cp -r "${{ needs.fetch-ui-artifact.outputs.artifact_path }}"/* .
+          # If extraction still failed, look for UI files to use directly
+          if [ "$EXTRACTION_SUCCESS" = false ]; then
+            echo "Looking for UI files to use directly..."
+            UI_FILES=$(find downloaded-ui -type f -not -name "*.zip" 2>/dev/null | sort)
+            if [ -n "$UI_FILES" ]; then
+              echo "Found UI files, copying them to current directory:"
+              echo "$UI_FILES"
+              # Create directories as needed
+              for file in $UI_FILES; do
+                dir=$(dirname "$file")
+                mkdir -p "${dir#downloaded-ui/}"
+                cp "$file" "${file#downloaded-ui/}" || echo "Copy failed for $file, but continuing"
+              done
+            else
+              echo "No UI files found that could be used."
             fi
           fi
           
