@@ -1,5 +1,5 @@
-appId: com.aidesktop.app
-productName: AI Desktop
+appId: com.wsp.app
+productName: WSP Desktop UI
 
 directories:
   output: dist
@@ -8,8 +8,8 @@ directories:
 files:
   - src/**/*
   - resources/**/*
-  - "!resources/runtimes/**/*"
-  - package.json
+  - build/**/*
+  - "!src/renderer/**/*"
 
 extraResources:
   - from: resources/runtimes
@@ -38,7 +38,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: OfficeKube AI Workspace
+  shortcutName: WSP Desktop UI
 
 dmg:
   contents:
