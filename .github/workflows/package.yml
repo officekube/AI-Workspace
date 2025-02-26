@@ -59,8 +59,10 @@ jobs:
             UI_TAG="${{ github.event.inputs.ui_version }}"
             ARTIFACT_NAME="wsp-desktop-ui-build-$UI_TAG"
             echo "Fetching specific artifact: $ARTIFACT_NAME"
-            gh run list --repo officekube/wsp-desktop-ui --branch "$UI_TAG" --status completed --limit 10 > runs.json
-            RUN_ID=$(jq -r '.workflow_runs[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .id' runs.json | head -n 1)
+            gh run list --repo officekube/wsp-desktop-ui --branch "$UI_TAG" --status completed --limit 10 --json > runs.json
+            echo "Raw gh run list output:"
+            cat runs.json
+            RUN_ID=$(jq -r '.[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .id' runs.json | head -n 1)
             if [ -z "$RUN_ID" ]; then
               echo "Error: No successful 'Build and Zip UI' run found for tag $UI_TAG in wsp-desktop-ui"
               exit 1
@@ -68,14 +70,18 @@ jobs:
           else
             # Fetch the latest successful artifact
             echo "No UI version specified. Fetching latest successful artifact."
-            gh run list --repo officekube/wsp-desktop-ui --status completed --limit 10 > runs.json
-            RUN_ID=$(jq -r '.workflow_runs[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .id' runs.json | head -n 1)
+            gh run list --repo officekube/wsp-desktop-ui --status completed --limit 10 --json > runs.json
+            echo "Raw gh run list output:"
+            cat runs.json
+            RUN_ID=$(jq -r '.[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .id' runs.json | head -n 1)
             if [ -z "$RUN_ID" ]; then
               echo "Error: No successful 'Build and Zip UI' runs found in wsp-desktop-ui"
               exit 1
             fi
             # Get artifact name from the run
             gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json artifacts > artifacts.json
+            echo "Raw artifacts output:"
+            cat artifacts.json
             ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' artifacts.json | head -n 1)
             if [ -z "$ARTIFACT_NAME" ]; then
               echo "Error: No artifact named 'wsp-desktop-ui-build-*' found in run $RUN_ID"
@@ -86,7 +92,7 @@ jobs:
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
           echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
         env:
-          GH_TOKEN: ${{ secrets.WSP_UI_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download UI Artifact
         id: download
