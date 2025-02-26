@@ -153,7 +153,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: windows-latest
+          - os: ubuntu-latest
             arch: x64
     runs-on: ${{ matrix.os }}
     steps:
@@ -162,146 +162,43 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Download UI files
+        uses: actions/download-artifact@v4
         with:
-          node-version: '18.x'
-
-      - name: Install dependencies
-        run: npm ci
+          name: ui-files
+          path: .
 
       - name: Extract UI Artifact
         shell: bash
         run: |
-          echo "Artifact path: ${{ needs.fetch-ui-artifact.outputs.artifact_path }}"
+          # Extract the UI files
+          echo "Contents of current directory before extraction:"
+          ls -la
           
-          # Debug information
-          echo "Current directory: $(pwd)"
-          echo "Listing downloaded-ui directory:"
-          ls -la downloaded-ui/ || echo "downloaded-ui directory not found"
+          echo "Extracting UI files from tar archive"
+          mkdir -p ui-extracted
+          tar -xzf ui-files.tar.gz -C ui-extracted
           
-          # Look for any directories within downloaded-ui
-          find downloaded-ui -type d 2>/dev/null | sort || echo "No directories found in downloaded-ui"
+          echo "Contents of ui-extracted directory:"
+          ls -la ui-extracted
           
-          # Look for any files within downloaded-ui
-          find downloaded-ui -type f 2>/dev/null | sort || echo "No files found in downloaded-ui"
-          
-          # Try several possible locations
-          echo "Checking various possible locations:"
-          POSSIBLE_PATHS=(
-            "downloaded-ui/wsp-desktop-ui-build.zip"
-            "downloaded-ui/wsp-desktop-ui-build-*/wsp-desktop-ui-build.zip"
-          )
-          
-          EXTRACTION_SUCCESS=false
-          
-          for path_pattern in "${POSSIBLE_PATHS[@]}"; do
-            echo "Checking pattern: $path_pattern"
-            for found_path in $path_pattern; do
-              if [ -f "$found_path" ]; then
-                echo "Found file at: $found_path"
-                echo "Trying to extract it..."
-                mkdir -p extracted/
-                unzip -o "$found_path" -d extracted/ || echo "Unzip failed, but continuing"
-                if [ -d "extracted" ] && [ "$(ls -A extracted 2>/dev/null)" ]; then
-                  echo "Extraction successful!"
-                  echo "Contents of extracted directory:"
-                  ls -la extracted/
-                  # Copy all extracted files to current directory
-                  cp -r extracted/* . || echo "Copy failed, but continuing"
-                  EXTRACTION_SUCCESS=true
-                  break 2
-                else
-                  echo "Extraction didn't produce usable files for $found_path"
-                fi
-              fi
+          # Find and extract any zip files
+          ZIP_FILES=$(find ui-extracted -name "*.zip" 2>/dev/null)
+          if [ -n "$ZIP_FILES" ]; then
+            echo "Found zip files: $ZIP_FILES"
+            for zip_file in $ZIP_FILES; do
+              echo "Extracting: $zip_file"
+              unzip -o "$zip_file" -d .
             done
-          done
-          
-          # If we couldn't extract anything, try to find any zip files
-          if [ "$EXTRACTION_SUCCESS" = false ]; then
-            echo "Looking for any zip files..."
-            ZIP_FILES=$(find . -name "*.zip" 2>/dev/null | sort)
-            if [ -n "$ZIP_FILES" ]; then
-              echo "Found zip files: $ZIP_FILES"
-              for zip_file in $ZIP_FILES; do
-                echo "Trying to extract: $zip_file"
-                mkdir -p extracted/
-                unzip -o "$zip_file" -d extracted/ || echo "Unzip failed, but continuing"
-                if [ -d "extracted" ] && [ "$(ls -A extracted 2>/dev/null)" ]; then
-                  echo "Extraction successful!"
-                  echo "Contents of extracted directory:"
-                  ls -la extracted/
-                  # Copy all extracted files to current directory
-                  cp -r extracted/* . || echo "Copy failed, but continuing"
-                  EXTRACTION_SUCCESS=true
-                  break
-                fi
-              done
-            fi
+          else
+            echo "No zip files found in ui-extracted, copying all files to current directory"
+            cp -r ui-extracted/* .
           fi
           
-          # If extraction still failed, look for UI files to use directly
-          if [ "$EXTRACTION_SUCCESS" = false ]; then
-            echo "Looking for UI files to use directly..."
-            UI_FILES=$(find downloaded-ui -type f -not -name "*.zip" 2>/dev/null | sort)
-            if [ -n "$UI_FILES" ]; then
-              echo "Found UI files, copying them to current directory:"
-              echo "$UI_FILES"
-              # Create directories as needed
-              for file in $UI_FILES; do
-                dir=$(dirname "$file")
-                mkdir -p "${dir#downloaded-ui/}"
-                cp "$file" "${file#downloaded-ui/}" || echo "Copy failed for $file, but continuing"
-              done
-            else
-              echo "No UI files found that could be used."
-            fi
-          fi
-          
-          # Finally, list what we have in the current directory
           echo "Final contents of current directory:"
           ls -la
         working-directory: .
 
-      - name: Build macOS Intel Installer
-        if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-x64
-
-      - name: Build macOS ARM Installer
-        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-arm64
-
-      - name: Build Windows Installer
-        if: matrix.os == 'windows-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-win-x64
-
-      - name: Build Linux Installer
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/*.dmg
-            dist/*.pkg
-            dist/*.exe
-            dist/*.msi
-            dist/*.deb
-            dist/*.rpm
-            dist/*.AppImage
-            dist/*.appimage
-          retention-days: 5
 
   update-release:
     needs: [build, prepare-tag]
@@ -311,49 +208,3 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: downloaded-artifacts
-          merge-multiple: false
-
-      - name: Consolidate Artifacts
-        shell: bash
-        run: |
-          mkdir -p release-assets
-          for platform_dir in downloaded-artifacts/*; do
-            if [ -d "$platform_dir" ]; then
-              platform=$(basename "$platform_dir")
-              case "$platform" in
-                *"windows"*)
-                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
-                  ;;
-                *"macos"*)
-                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
-                  ;;
-                *"ubuntu"* | *"linux"*)
-                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
-                  ;;
-              esac
-            fi
-          done
-          ls -la release-assets/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.prepare-tag.outputs.tag }}
-          files: release-assets/*
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update Release Notes
-        run: |
-          npm install @octokit/rest
-          RELEASE_TAG=${{ needs.prepare-tag.outputs.tag }} node scripts/update-release.js
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
