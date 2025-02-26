@@ -16,7 +16,6 @@ function createWindow() {
     },
   });
 
-
   // Load A's built index.html
   mainWindow.loadFile(path.join(__dirname, '../../build/index.html'));
 

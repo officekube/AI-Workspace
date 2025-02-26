@@ -148,6 +148,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Add this step to upload the artifact for use in other jobs
+      - name: Upload UI Artifact for other jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-files
+          path: ${{ steps.download.outputs.artifact_path }}
+          retention-days: 1
+
   build:
     needs: [prepare-tag, fetch-ui-artifact]
     strategy:
@@ -166,39 +174,50 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ui-files
-          path: .
+          path: ./ui-files
 
       - name: Extract UI Artifact
         shell: bash
         run: |
-          # Extract the UI files
-          echo "Contents of current directory before extraction:"
-          ls -la
+          # List what we've downloaded
+          echo "Contents of ui-files directory:"
+          ls -la ui-files
           
-          echo "Extracting UI files from tar archive"
-          mkdir -p ui-extracted
-          tar -xzf ui-files.tar.gz -C ui-extracted
+          # Check file type
+          file ui-files || echo "File command not available"
           
-          echo "Contents of ui-extracted directory:"
-          ls -la ui-extracted
-          
-          # Find and extract any zip files
-          ZIP_FILES=$(find ui-extracted -name "*.zip" 2>/dev/null)
-          if [ -n "$ZIP_FILES" ]; then
-            echo "Found zip files: $ZIP_FILES"
-            for zip_file in $ZIP_FILES; do
-              echo "Extracting: $zip_file"
-              unzip -o "$zip_file" -d .
-            done
+          # Extract based on file type
+          if [[ -f ui-files && $(file --mime-type -b ui-files) == "application/zip" ]]; then
+            echo "Downloaded file is a zip file, extracting..."
+            unzip -o ui-files -d ./ui-extracted
+          elif [[ -f ui-files && $(file --mime-type -b ui-files) == "application/gzip" ]]; then
+            echo "Downloaded file is a gzip file, extracting..."
+            mkdir -p ./ui-extracted
+            tar -xzf ui-files -C ./ui-extracted
+          elif [[ -d ui-files ]]; then
+            echo "Downloaded a directory containing files"
+            # Find and extract any zip files
+            ZIP_FILES=$(find ui-files -name "*.zip" 2>/dev/null)
+            if [ -n "$ZIP_FILES" ]; then
+              echo "Found zip files: $ZIP_FILES"
+              mkdir -p ./ui-extracted
+              for zip_file in $ZIP_FILES; do
+                echo "Extracting: $zip_file"
+                unzip -o "$zip_file" -d ./ui-extracted
+              done
+            else
+              echo "No zip files found in ui-files, using files as is"
+              mkdir -p ./ui-extracted
+              cp -r ui-files/* ./ui-extracted/
+            fi
           else
-            echo "No zip files found in ui-extracted, copying all files to current directory"
-            cp -r ui-extracted/* .
+            echo "Unknown file type, trying to use as is"
+            mkdir -p ./ui-extracted
+            cp -r ui-files ./ui-extracted/
           fi
           
-          echo "Final contents of current directory:"
-          ls -la
-        working-directory: .
-
+          echo "Final contents of ui-extracted directory:"
+          ls -la ./ui-extracted
 
   update-release:
     needs: [build, prepare-tag]
@@ -208,3 +227,5 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # Add additional steps for release updates
