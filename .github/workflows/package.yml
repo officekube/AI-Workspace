@@ -59,7 +59,7 @@ jobs:
             UI_TAG="${{ github.event.inputs.ui_version }}"
             ARTIFACT_NAME="wsp-desktop-ui-build-$UI_TAG"
             echo "Fetching specific artifact: $ARTIFACT_NAME"
-            gh run list --repo officekube/wsp-desktop-ui --branch "$UI_TAG" --status completed --limit 10 --json > runs.json
+            gh run list --repo officekube/wsp-desktop-ui --branch "$UI_TAG" --status completed --limit 10 --json id,name,conclusion > runs.json
             echo "Raw gh run list output:"
             cat runs.json
             RUN_ID=$(jq -r '.[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .id' runs.json | head -n 1)
@@ -70,7 +70,7 @@ jobs:
           else
             # Fetch the latest successful artifact
             echo "No UI version specified. Fetching latest successful artifact."
-            gh run list --repo officekube/wsp-desktop-ui --status completed --limit 10 --json > runs.json
+            gh run list --repo officekube/wsp-desktop-ui --status completed --limit 10 --json id,name,conclusion > runs.json
             echo "Raw gh run list output:"
             cat runs.json
             RUN_ID=$(jq -r '.[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .id' runs.json | head -n 1)
