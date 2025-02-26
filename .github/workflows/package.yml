@@ -83,7 +83,7 @@ jobs:
             echo "Raw jobs output:"
             cat jobs.json
             ARTIFACT_NAME=$(jq -r '.jobs[].steps[] | select(.conclusion == "success") | .outputs[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' jobs.json | head -n 1)
-            
+          
             # If the above approach doesn't find an artifact, try an alternative approach
             if [ -z "$ARTIFACT_NAME" ]; then
               echo "Trying alternative approach to find artifacts..."
@@ -157,7 +157,7 @@ jobs:
           retention-days: 1
 
   build:
-    needs: [prepare-tag, fetch-ui-artifact]
+    needs: [ prepare-tag, fetch-ui-artifact ]
     strategy:
       matrix:
         include:
@@ -169,6 +169,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download runtimes
+        run: npm run download-runtimes
 
       - name: Download UI files
         uses: actions/download-artifact@v4
@@ -219,8 +230,49 @@ jobs:
           echo "Final contents of ui-extracted directory:"
           ls -la ./ui-extracted
 
+
+      - name: Build macOS Intel Installer
+        if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build-mac-x64
+
+      - name: Build macOS ARM Installer
+        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build-mac-arm64
+
+      - name: Build Windows Installer
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build-win-x64
+
+      - name: Build Linux Installer
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.pkg
+            dist/*.exe
+            dist/*.msi
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
+            dist/*.appimage
+          retention-days: 5
+
+
   update-release:
-    needs: [build, prepare-tag]
+    needs: [ build, prepare-tag ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -228,4 +280,48 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Add additional steps for release updates
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-artifacts
+          merge-multiple: false
+
+      - name: Consolidate Artifacts
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          for platform_dir in downloaded-artifacts/*; do
+            if [ -d "$platform_dir" ]; then
+              platform=$(basename "$platform_dir")
+              case "$platform" in
+                *"windows"*)
+                  find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
+                  ;;
+                *"macos"*)
+                  find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
+                  ;;
+                *"ubuntu"* | *"linux"*)
+                  find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
+                  ;;
+              esac
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.prepare-tag.outputs.tag }}
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Release Notes
+        run: |
+          npm install @octokit/rest
+          RELEASE_TAG=${{ needs.prepare-tag.outputs.tag }} node scripts/update-release.js
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
