@@ -181,53 +181,90 @@ jobs:
 
       - name: Extract UI Artifact
         run: |
-          echo "Extracting from path: ${{ needs.fetch-ui-artifact.outputs.artifact_path }}"
+          echo "Artifact path: ${{ needs.fetch-ui-artifact.outputs.artifact_path }}"
           
-          # Check file type
-          if [[ -f "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ]]; then
-            file_type=$(file -b "${{ needs.fetch-ui-artifact.outputs.artifact_path }}")
-            echo "File type: $file_type"
-            
-            # Handle based on file type
-            if [[ "$file_type" == *"Zip archive"* ]]; then
-              echo "Processing as zip file"
-              unzip -o "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" -d .
-            elif [[ "$file_type" == *"directory"* ]]; then
-              echo "Artifact is a directory, copying contents"
-              cp -r "${{ needs.fetch-ui-artifact.outputs.artifact_path }}"/* .
-            else
-              echo "Trying to extract anyway"
-              # Try unzip first
-              if unzip -o "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" -d .; then
-                echo "Unzip successful"
-              else
-                echo "Unzip failed, trying to copy file"
-                mkdir -p ui-build
-                cp "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ui-build/
-                echo "Copied file to ui-build directory"
+          # Create a debug script to help diagnose the issue
+          cat > debug.sh << 'EOF'
+          #!/bin/bash
+          set -x  # Echo commands as they are executed
+          
+          echo "Current directory: $(pwd)"
+          echo "Listing downloaded-ui directory:"
+          ls -la downloaded-ui/
+          
+          # Look for any directories within downloaded-ui
+          find downloaded-ui -type d | sort
+          
+          # Look for any files within downloaded-ui
+          find downloaded-ui -type f | sort
+          
+          # Try several possible locations
+          echo "Checking various possible locations:"
+          POSSIBLE_PATHS=(
+            "downloaded-ui/wsp-desktop-ui-build.zip"
+            "downloaded-ui/wsp-desktop-ui-build-*/wsp-desktop-ui-build.zip"
+            "downloaded-ui/*.zip"
+          )
+          
+          for path_pattern in "${POSSIBLE_PATHS[@]}"; do
+            echo "Checking pattern: $path_pattern"
+            for found_path in $path_pattern; do
+              if [ -f "$found_path" ]; then
+                echo "Found file at: $found_path"
+                echo "Trying to extract it..."
+                unzip -o "$found_path" -d extracted/
+                if [ $? -eq 0 ]; then
+                  echo "Extraction successful!"
+                  echo "Contents of extracted directory:"
+                  ls -la extracted/
+                  # Copy all extracted files to current directory
+                  cp -r extracted/* .
+                  exit 0
+                else
+                  echo "Extraction failed for $found_path"
+                fi
               fi
-            fi
+            done
+          done
+          
+          # If we got here, we couldn't find or extract any zip files
+          # Look for any UI files we can use directly
+          echo "Looking for UI files to use directly..."
+          UI_FILES=$(find downloaded-ui -type f -not -name "*.zip" | sort)
+          if [ -n "$UI_FILES" ]; then
+            echo "Found UI files, copying them to current directory:"
+            echo "$UI_FILES"
+            # Create directories as needed
+            for file in $UI_FILES; do
+              dir=$(dirname "$file")
+              mkdir -p "${dir#downloaded-ui/}"
+              cp "$file" "${file#downloaded-ui/}"
+            done
+            exit 0
+          fi
+          
+          echo "No UI files found that could be used. Workflow will likely fail."
+          exit 1
+          EOF
+          
+          # Make the debug script executable and run it
+          chmod +x debug.sh
+          ./debug.sh || true  # Continue even if the debug script fails
+          
+          # Try to extract directly from the provided artifact path
+          if [ -f "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ]; then
+            echo "Attempting to extract from artifact path:"
+            unzip -o "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" -d .
           else
-            echo "Error: Artifact path is not a file or doesn't exist: ${{ needs.fetch-ui-artifact.outputs.artifact_path }}"
-            echo "Looking for UI files in workspace:"
-            find . -name "*desktop-ui*" | sort
-            
-            # Try to find UI files as fallback
-            UI_DIR=$(find . -path "*/downloaded-ui/*" -type d | head -n 1)
-            if [ -n "$UI_DIR" ]; then
-              echo "Found UI directory: $UI_DIR"
-              echo "Contents:"
-              ls -la "$UI_DIR"
-              echo "Copying contents to current directory"
-              cp -r "$UI_DIR"/* .
-            else
-              echo "No UI directory found"
-              exit 1
+            echo "Artifact path doesn't exist as a file, checking if it's a directory"
+            if [ -d "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ]; then
+              echo "Artifact path is a directory, copying contents:"
+              cp -r "${{ needs.fetch-ui-artifact.outputs.artifact_path }}"/* .
             fi
           fi
           
-          # List extracted contents for verification
-          echo "Current directory contents:"
+          # Finally, list what we have in the current directory
+          echo "Final contents of current directory:"
           ls -la
         working-directory: .
 
