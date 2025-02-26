@@ -79,10 +79,20 @@ jobs:
               exit 1
             fi
             # Get artifact name from the run
-            gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json artifacts > artifacts.json
-            echo "Raw artifacts output:"
-            cat artifacts.json
-            ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' artifacts.json | head -n 1)
+            gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json jobs > jobs.json
+            echo "Raw jobs output:"
+            cat jobs.json
+            ARTIFACT_NAME=$(jq -r '.jobs[].steps[] | select(.conclusion == "success") | .outputs[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' jobs.json | head -n 1)
+            
+            # If the above approach doesn't find an artifact, try an alternative approach
+            if [ -z "$ARTIFACT_NAME" ]; then
+              echo "Trying alternative approach to find artifacts..."
+              # List artifacts directly using the run ID
+              gh api repos/officekube/wsp-desktop-ui/actions/runs/$RUN_ID/artifacts > direct_artifacts.json
+              echo "Raw direct artifacts output:"
+              cat direct_artifacts.json
+              ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' direct_artifacts.json | head -n 1)
+            fi
             if [ -z "$ARTIFACT_NAME" ]; then
               echo "Error: No artifact named 'wsp-desktop-ui-build-*' found in run $RUN_ID"
               exit 1
