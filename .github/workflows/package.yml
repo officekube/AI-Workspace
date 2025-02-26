@@ -108,8 +108,43 @@ jobs:
         id: download
         run: |
           echo "Downloading artifact: ${{ steps.fetch_artifact.outputs.artifact_name }}"
+          # Create download directory
+          mkdir -p downloaded-ui
+          
+          # Download the artifact
           gh run download ${{ steps.fetch_artifact.outputs.run_id }} --repo officekube/wsp-desktop-ui --name "${{ steps.fetch_artifact.outputs.artifact_name }}" -D downloaded-ui
-          echo "artifact_path=$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-build.zip" >> $GITHUB_OUTPUT
+          
+          # Check what was downloaded (verbose listing)
+          echo "Contents of downloaded-ui directory:"
+          find downloaded-ui -type f | xargs ls -la
+          
+          # Check if the expected zip file exists
+          EXPECTED_PATH="$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-build.zip"
+          if [ -f "$EXPECTED_PATH" ]; then
+            echo "Found expected zip file at: $EXPECTED_PATH"
+            echo "artifact_path=$EXPECTED_PATH" >> $GITHUB_OUTPUT
+          else
+            echo "Expected file not found at: $EXPECTED_PATH"
+            # Try to find any zip file
+            ZIP_FILE=$(find downloaded-ui -name "*.zip" | head -n 1)
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Found zip file at: $ZIP_FILE"
+              echo "artifact_path=$ZIP_FILE" >> $GITHUB_OUTPUT
+            else
+              echo "No zip files found in the downloaded artifact"
+              # List everything to see what's actually there
+              find downloaded-ui -type f
+              # If there's any file, use the first one (assuming it might be the build without .zip extension)
+              ANY_FILE=$(find downloaded-ui -type f | head -n 1)
+              if [ -n "$ANY_FILE" ]; then
+                echo "Using this file instead: $ANY_FILE"
+                echo "artifact_path=$ANY_FILE" >> $GITHUB_OUTPUT
+              else
+                echo "No files found in the download. Unable to proceed."
+                exit 1
+              fi
+            fi
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -146,7 +181,54 @@ jobs:
 
       - name: Extract UI Artifact
         run: |
-          unzip -o "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" -d .
+          echo "Extracting from path: ${{ needs.fetch-ui-artifact.outputs.artifact_path }}"
+          
+          # Check file type
+          if [[ -f "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ]]; then
+            file_type=$(file -b "${{ needs.fetch-ui-artifact.outputs.artifact_path }}")
+            echo "File type: $file_type"
+            
+            # Handle based on file type
+            if [[ "$file_type" == *"Zip archive"* ]]; then
+              echo "Processing as zip file"
+              unzip -o "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" -d .
+            elif [[ "$file_type" == *"directory"* ]]; then
+              echo "Artifact is a directory, copying contents"
+              cp -r "${{ needs.fetch-ui-artifact.outputs.artifact_path }}"/* .
+            else
+              echo "Trying to extract anyway"
+              # Try unzip first
+              if unzip -o "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" -d .; then
+                echo "Unzip successful"
+              else
+                echo "Unzip failed, trying to copy file"
+                mkdir -p ui-build
+                cp "${{ needs.fetch-ui-artifact.outputs.artifact_path }}" ui-build/
+                echo "Copied file to ui-build directory"
+              fi
+            fi
+          else
+            echo "Error: Artifact path is not a file or doesn't exist: ${{ needs.fetch-ui-artifact.outputs.artifact_path }}"
+            echo "Looking for UI files in workspace:"
+            find . -name "*desktop-ui*" | sort
+            
+            # Try to find UI files as fallback
+            UI_DIR=$(find . -path "*/downloaded-ui/*" -type d | head -n 1)
+            if [ -n "$UI_DIR" ]; then
+              echo "Found UI directory: $UI_DIR"
+              echo "Contents:"
+              ls -la "$UI_DIR"
+              echo "Copying contents to current directory"
+              cp -r "$UI_DIR"/* .
+            else
+              echo "No UI directory found"
+              exit 1
+            fi
+          fi
+          
+          # List extracted contents for verification
+          echo "Current directory contents:"
+          ls -la
         working-directory: .
 
       - name: Build macOS Intel Installer
