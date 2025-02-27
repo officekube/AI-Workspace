@@ -3,7 +3,7 @@
 ## Downloads
 - Windows Installer (not available)
 - macOS Installer (Apple Silicon) (not available)
-- [macOS Installer (Intel)](https://github.com/officekube/AI-Workspace/releases/download/v0.0.0-test-1740610660/OfficeKube.AI.Workspace-1.0.0-x64.dmg)
+- [macOS Installer (Intel)](https://github.com/officekube/AI-Workspace/releases/download/v0.0.0-test-1740617929/OfficeKube.AI.Workspace-1.0.0-x64.dmg)
 - Linux Installer (not available)
 
 ## Included Runtimes
@@ -12,4 +12,4 @@
 - Robot Framework 6.1.1
 - Jupyter Notebook 7.0.0
 
-**Full Changelog**: https://github.com/officekube/AI-Workspace/compare/v0.0.0-test-1740610460...v0.0.0-test-1740610660
+**Full Changelog**: https://github.com/officekube/AI-Workspace/compare/v0.0.0-test-1740610660...v0.0.0-test-1740617929
