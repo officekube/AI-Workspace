@@ -156,8 +156,81 @@ jobs:
           path: ${{ steps.download.outputs.artifact_path }}
           retention-days: 1
 
+  extract-ui:
+    needs: [fetch-ui-artifact]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download UI files
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-files
+          path: ./ui-files
+
+      - name: Extract UI Artifact
+        run: |
+          echo "Contents of ui-files directory:"
+          ls -la ui-files
+          
+          # Create an extraction directory
+          mkdir -p extracted
+          
+          # Check if we have a single file or a directory
+          if [ -f ui-files ] || [ "$(ls -A ui-files | wc -l)" -eq "1" -a -f "$(ls -A ui-files | head -n 1)" ]; then
+            # We have a single file, likely the zip
+            ZIPFILE=$([ -f ui-files ] && echo "ui-files" || echo "$(ls -A ui-files | head -n 1)")
+            ZIPFILE_FULL_PATH=$([ -f ui-files ] && echo "$(pwd)/ui-files" || echo "$(pwd)/ui-files/$(ls -A ui-files | head -n 1)")
+            echo "Found a single file: $ZIPFILE_FULL_PATH"
+            
+            # Try to unzip it
+            if file "$ZIPFILE_FULL_PATH" | grep -q "Zip archive data"; then
+              echo "File is a zip archive, extracting..."
+              unzip -o "$ZIPFILE_FULL_PATH" -d ./extracted
+            else
+              echo "File doesn't appear to be a zip archive. Trying unzip anyway..."
+              unzip -o "$ZIPFILE_FULL_PATH" -d ./extracted || echo "Unzip failed, file may not be a zip"
+            fi
+          else
+            # We have a directory structure
+            echo "Found directory structure, looking for zip files..."
+            ZIPFILE=$(find ui-files -name "*.zip" | head -n 1)
+            
+            if [ -n "$ZIPFILE" ]; then
+              echo "Found zip file: $ZIPFILE"
+              unzip -o "$ZIPFILE" -d ./extracted
+            else
+              echo "No zip files found. Using files as is."
+              cp -r ui-files/* ./extracted/
+            fi
+          fi
+          
+          # Check what was extracted
+          echo "Contents of extraction directory:"
+          find ./extracted -type f | sort
+          
+          # Handle nested artifact directories if they exist
+          if [ -d "./extracted/artifact" ]; then
+            echo "Found nested artifact directory, moving contents up"
+            mkdir -p ./extracted-final
+            mv ./extracted/artifact/* ./extracted-final/
+            rm -rf ./extracted
+            mv ./extracted-final ./extracted
+          fi
+          
+          # Cleanup unnecessary files
+          rm -rf ./ui-files
+          
+          echo "Final contents of extracted directory:"
+          find ./extracted -type f | sort
+
+      - name: Upload extracted artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: extracted-ui
+          path: ./extracted
+          retention-days: 1
+
   build:
-    needs: [ prepare-tag, fetch-ui-artifact ]
+    needs: [prepare-tag, extract-ui]
     strategy:
       matrix:
         include:
@@ -181,66 +254,25 @@ jobs:
       - name: Download runtimes
         run: npm run download-runtimes
 
-      - name: Download UI files
+      - name: Download extracted UI files
         uses: actions/download-artifact@v4
         with:
-          name: ui-files
-          path: ./ui-files
+          name: extracted-ui
+          path: ./extracted-ui
 
-      - name: Extract UI Artifact
+      - name: Setup extracted UI files
         run: |
-          echo "Contents of ui-files directory:"
-          ls -la ui-files
+          echo "Contents of extracted-ui directory:"
+          ls -la ./extracted-ui
           
-          # Check if we have a single file or a directory
-          if [ -f ui-files ] || [ "$(ls -A ui-files | wc -l)" -eq "1" -a -f "$(ls -A ui-files)" ]; then
-            # We have a single file, likely the zip
-            ZIPFILE=$([ -f ui-files ] && echo "ui-files" || echo "$(ls -A ui-files)")
-            echo "Found a single file: $ZIPFILE"
-            
-            # Try to unzip it
-            if file "$ZIPFILE" | grep -q "Zip archive data"; then
-              echo "File is a zip archive, extracting..."
-              unzip -o "$ZIPFILE" -d ./extracted
-            else
-              echo "File doesn't appear to be a zip archive. Trying unzip anyway..."
-              unzip -o "$ZIPFILE" -d ./extracted || echo "Unzip failed, file may not be a zip"
-            fi
-          else
-            # We have a directory structure
-            echo "Found directory structure, looking for zip files..."
-            ZIPFILE=$(find ui-files -name "*.zip" | head -n 1)
-            
-            if [ -n "$ZIPFILE" ]; then
-              echo "Found zip file: $ZIPFILE"
-              unzip -o "$ZIPFILE" -d ./extracted
-            else
-              echo "No zip files found. Using files as is."
-              mkdir -p ./extracted
-              cp -r ui-files/* ./extracted/
-            fi
-          fi
-          
-          # Check what was extracted
-          echo "Contents of extraction directory:"
-          find ./extracted -type f | sort
-          
-          # Move files to the expected location
-          if [ -d "./extracted/artifact" ]; then
-            echo "Moving artifact contents to root"
-            mv ./extracted/artifact/* .
-          elif [ -d "./extracted" ]; then
-            echo "Moving extracted contents to root"
-            mv ./extracted/* .
-          fi
-          
-          # Cleanup
-          rm -rf ./extracted ui-files
-          
-          echo "Final contents of working directory:"
-          ls -la
-        working-directory: .
+          # Copy extracted UI files to the expected location for building
+          cp -r ./extracted-ui/* ./
 
+          # Cleanup
+          rm -rf ./extracted-ui
+          
+          echo "Final contents of working directory after copying UI files:"
+          ls -la
 
       - name: Build macOS Intel Installer
         if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
@@ -281,9 +313,8 @@ jobs:
             dist/*.appimage
           retention-days: 5
 
-
   update-release:
-    needs: [ build, prepare-tag ]
+    needs: [build, prepare-tag]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
