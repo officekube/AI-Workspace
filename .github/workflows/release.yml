@@ -266,7 +266,9 @@ jobs:
           name: extracted-ui
           path: ./extracted-ui
 
-      - name: Setup extracted UI files
+      - name: Setup extracted UI files (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           echo "Contents of extracted-ui directory:"
           ls -la ./extracted-ui
@@ -279,6 +281,22 @@ jobs:
           
           echo "Final contents of working directory after copying UI files:"
           ls -la
+
+      - name: Setup extracted UI files (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          echo "Contents of extracted-ui directory:"
+          Get-ChildItem -Path ./extracted-ui -Force
+          
+          # Copy extracted UI files to the expected location for building
+          Copy-Item -Path "./extracted-ui/*" -Destination "./" -Recurse -Force
+
+          # Cleanup
+          Remove-Item -Path "./extracted-ui" -Recurse -Force
+          
+          echo "Final contents of working directory after copying UI files:"
+          Get-ChildItem -Path ./ -Force
 
       - name: Build macOS Intel Installer
         if: matrix.os == 'macos-latest' && matrix.arch == 'x64'

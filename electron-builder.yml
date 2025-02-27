@@ -1,6 +1,7 @@
 appId: com.aidesktop.app
 productName: AI Desktop
 
+
 directories:
   output: dist
   buildResources: build
