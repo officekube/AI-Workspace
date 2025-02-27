@@ -1,5 +1,6 @@
 # Release v1.0.0
 > This is a release of OfficeKube WSP Desktop UI v0.0.0-test-1740484733
+> 
 
 ## Release Notes
 
