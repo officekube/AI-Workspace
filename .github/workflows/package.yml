@@ -173,7 +173,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '20.x'
 
       - name: Install dependencies
         run: npm ci
@@ -188,47 +188,58 @@ jobs:
           path: ./ui-files
 
       - name: Extract UI Artifact
-        shell: bash
         run: |
-          # List what we've downloaded
           echo "Contents of ui-files directory:"
           ls -la ui-files
           
-          # Check file type
-          file ui-files || echo "File command not available"
-          
-          # Extract based on file type
-          if [[ -f ui-files && $(file --mime-type -b ui-files) == "application/zip" ]]; then
-            echo "Downloaded file is a zip file, extracting..."
-            unzip -o ui-files -d ./ui-extracted
-          elif [[ -f ui-files && $(file --mime-type -b ui-files) == "application/gzip" ]]; then
-            echo "Downloaded file is a gzip file, extracting..."
-            mkdir -p ./ui-extracted
-            tar -xzf ui-files -C ./ui-extracted
-          elif [[ -d ui-files ]]; then
-            echo "Downloaded a directory containing files"
-            # Find and extract any zip files
-            ZIP_FILES=$(find ui-files -name "*.zip" 2>/dev/null)
-            if [ -n "$ZIP_FILES" ]; then
-              echo "Found zip files: $ZIP_FILES"
-              mkdir -p ./ui-extracted
-              for zip_file in $ZIP_FILES; do
-                echo "Extracting: $zip_file"
-                unzip -o "$zip_file" -d ./ui-extracted
-              done
+          # Check if we have a single file or a directory
+          if [ -f ui-files ] || [ "$(ls -A ui-files | wc -l)" -eq "1" -a -f "$(ls -A ui-files)" ]; then
+            # We have a single file, likely the zip
+            ZIPFILE=$([ -f ui-files ] && echo "ui-files" || echo "$(ls -A ui-files)")
+            echo "Found a single file: $ZIPFILE"
+            
+            # Try to unzip it
+            if file "$ZIPFILE" | grep -q "Zip archive data"; then
+              echo "File is a zip archive, extracting..."
+              unzip -o "$ZIPFILE" -d ./extracted
             else
-              echo "No zip files found in ui-files, using files as is"
-              mkdir -p ./ui-extracted
-              cp -r ui-files/* ./ui-extracted/
+              echo "File doesn't appear to be a zip archive. Trying unzip anyway..."
+              unzip -o "$ZIPFILE" -d ./extracted || echo "Unzip failed, file may not be a zip"
             fi
           else
-            echo "Unknown file type, trying to use as is"
-            mkdir -p ./ui-extracted
-            cp -r ui-files ./ui-extracted/
+            # We have a directory structure
+            echo "Found directory structure, looking for zip files..."
+            ZIPFILE=$(find ui-files -name "*.zip" | head -n 1)
+            
+            if [ -n "$ZIPFILE" ]; then
+              echo "Found zip file: $ZIPFILE"
+              unzip -o "$ZIPFILE" -d ./extracted
+            else
+              echo "No zip files found. Using files as is."
+              mkdir -p ./extracted
+              cp -r ui-files/* ./extracted/
+            fi
           fi
           
-          echo "Final contents of ui-extracted directory:"
-          ls -la ./ui-extracted
+          # Check what was extracted
+          echo "Contents of extraction directory:"
+          find ./extracted -type f | sort
+          
+          # Move files to the expected location
+          if [ -d "./extracted/artifact" ]; then
+            echo "Moving artifact contents to root"
+            mv ./extracted/artifact/* .
+          elif [ -d "./extracted" ]; then
+            echo "Moving extracted contents to root"
+            mv ./extracted/* .
+          fi
+          
+          # Cleanup
+          rm -rf ./extracted ui-files
+          
+          echo "Final contents of working directory:"
+          ls -la
+        working-directory: .
 
 
       - name: Build macOS Intel Installer
