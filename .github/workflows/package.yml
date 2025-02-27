@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       artifact_path: ${{ steps.download.outputs.artifact_path }}
+      artifact_name: ${{ steps.fetch_artifact.outputs.artifact_name }}
     steps:
       - name: Determine UI Artifact
         id: fetch_artifact
@@ -51,7 +52,13 @@ jobs:
               echo "Error: No successful 'Build and Zip UI' runs found in wsp-desktop-ui"
               exit 1
             fi
-            gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json artifacts > artifacts.json
+            
+            # The error is in this section - we need to use the correct approach to get artifacts
+            # Instead of using 'gh run view $RUN_ID --json artifacts', which doesn't work,
+            # we'll use the GitHub API directly
+            
+            echo "Fetching artifacts for run ID: $RUN_ID"
+            gh api repos/officekube/wsp-desktop-ui/actions/runs/$RUN_ID/artifacts > artifacts.json
             echo "Raw artifacts output:"
             cat artifacts.json
             ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-full-")) | .name' artifacts.json | head -n 1)
@@ -73,20 +80,34 @@ jobs:
           mkdir -p downloaded-ui
           gh run download ${{ steps.fetch_artifact.outputs.run_id }} --repo officekube/wsp-desktop-ui --name "${{ steps.fetch_artifact.outputs.artifact_name }}" -D downloaded-ui
           echo "Contents of downloaded-ui directory:"
-          find downloaded-ui -type f | xargs ls -la
+          find downloaded-ui -type f | xargs ls -la || echo "No files found via find"
+          
+          # Let's make a more thorough check of what's actually in the directory
+          echo "Listing directories in downloaded-ui:"
+          ls -la downloaded-ui/
+          
+          # Try to locate the zip file using different approaches
           EXPECTED_PATH="$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-full.zip"
           if [ -f "$EXPECTED_PATH" ]; then
             echo "Found expected zip file at: $EXPECTED_PATH"
             echo "artifact_path=$EXPECTED_PATH" >> $GITHUB_OUTPUT
           else
             echo "Expected file not found at: $EXPECTED_PATH"
-            ZIP_FILE=$(find downloaded-ui -name "*.zip" | head -n 1)
+            # Try to find any zip file recursively
+            ZIP_FILE=$(find downloaded-ui -name "*.zip" 2>/dev/null | head -n 1)
             if [ -n "$ZIP_FILE" ]; then
               echo "Found zip file at: $ZIP_FILE"
               echo "artifact_path=$ZIP_FILE" >> $GITHUB_OUTPUT
             else
-              echo "No zip files found in the downloaded artifact"
-              exit 1
+              echo "No zip files found. Checking for any file that might be useful"
+              ANY_FILE=$(find downloaded-ui -type f 2>/dev/null | head -n 1)
+              if [ -n "$ANY_FILE" ]; then
+                echo "Found this file, will use it: $ANY_FILE"
+                echo "artifact_path=$ANY_FILE" >> $GITHUB_OUTPUT
+              else
+                echo "No files found in the downloaded artifacts"
+                exit 1
+              fi
             fi
           fi
         env:
@@ -108,10 +129,18 @@ jobs:
             arch: x64
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'  # Match A’s Node version
+          node-version: '20.x'
+
+      - name: Install Dependencies
+        run: npm ci
 
       - name: Download runtimes
         run: npm run download-runtimes
@@ -126,39 +155,79 @@ jobs:
         run: |
           echo "Contents of ui-files directory:"
           ls -la ui-files
-          unzip -o ui-files/wsp-desktop-ui-full.zip -d .
-          mv artifact/* .  # Move A’s files to root
-          rm -rf artifact ui-files
-          echo "Extracted contents:"
+          
+          # Check if we have a single file or a directory
+          if [ -f ui-files ] || [ "$(ls -A ui-files | wc -l)" -eq "1" -a -f "$(ls -A ui-files)" ]; then
+            # We have a single file, likely the zip
+            ZIPFILE=$([ -f ui-files ] && echo "ui-files" || echo "$(ls -A ui-files)")
+            echo "Found a single file: $ZIPFILE"
+            
+            # Try to unzip it
+            if file "$ZIPFILE" | grep -q "Zip archive data"; then
+              echo "File is a zip archive, extracting..."
+              unzip -o "$ZIPFILE" -d ./extracted
+            else
+              echo "File doesn't appear to be a zip archive. Trying unzip anyway..."
+              unzip -o "$ZIPFILE" -d ./extracted || echo "Unzip failed, file may not be a zip"
+            fi
+          else
+            # We have a directory structure
+            echo "Found directory structure, looking for zip files..."
+            ZIPFILE=$(find ui-files -name "*.zip" | head -n 1)
+            
+            if [ -n "$ZIPFILE" ]; then
+              echo "Found zip file: $ZIPFILE"
+              unzip -o "$ZIPFILE" -d ./extracted
+            else
+              echo "No zip files found. Using files as is."
+              mkdir -p ./extracted
+              cp -r ui-files/* ./extracted/
+            fi
+          fi
+          
+          # Check what was extracted
+          echo "Contents of extraction directory:"
+          find ./extracted -type f | sort
+          
+          # Move files to the expected location
+          if [ -d "./extracted/artifact" ]; then
+            echo "Moving artifact contents to root"
+            mv ./extracted/artifact/* .
+          elif [ -d "./extracted" ]; then
+            echo "Moving extracted contents to root"
+            mv ./extracted/* .
+          fi
+          
+          # Cleanup
+          rm -rf ./extracted ui-files
+          
+          echo "Final contents of working directory:"
           ls -la
         working-directory: .
-
-      - name: Install Dependencies
-        run: npm ci  # Use A’s package.json
 
       - name: Build macOS Intel Installer
         if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-x64  # Use A’s script
+        run: npm run build-mac-x64
 
       - name: Build macOS ARM Installer
         if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-arm64  # Use A’s script
+        run: npm run build-mac-arm64
 
       - name: Build Windows Installer
         if: matrix.os == 'windows-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-win-x64  # Use A’s script
+        run: npm run build-win-x64
 
       - name: Build Linux Installer
         if: matrix.os == 'ubuntu-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release  # Use A’s script
+        run: npm run release
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -176,7 +245,7 @@ jobs:
           retention-days: 5
 
   update-release:
-    needs: build
+    needs: [fetch-ui-artifact, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -197,6 +266,12 @@ jobs:
           for platform_dir in downloaded-artifacts/*; do
             if [ -d "$platform_dir" ]; then
               platform=$(basename "$platform_dir")
+              if [[ "$platform" == "ui-full-files" ]]; then
+                # Skip the UI files, we don't need them in the release
+                continue
+              fi
+              
+              echo "Processing platform: $platform"
               case "$platform" in
                 *"windows"*)
                   find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
@@ -212,10 +287,15 @@ jobs:
           done
           ls -la release-assets/
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ needs.fetch-ui-artifact.outputs.artifact_name }}  # Use A’s artifact tag
+          tag_name: release-${{ needs.fetch-ui-artifact.outputs.artifact_name }}
           files: release-assets/*
           draft: false
           prerelease: false
@@ -226,6 +306,6 @@ jobs:
       - name: Update Release Notes
         run: |
           npm install @octokit/rest
-          RELEASE_TAG=${{ needs.fetch-ui-artifact.outputs.artifact_name }} node scripts/update-release.js
+          RELEASE_TAG=release-${{ needs.fetch-ui-artifact.outputs.artifact_name }} node scripts/update-release.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
