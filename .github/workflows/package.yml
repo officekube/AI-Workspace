@@ -21,33 +21,8 @@ permissions:
   issues: write
 
 jobs:
-  prepare-tag:
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.set_tag.outputs.tag }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set Tag Name
-        id: set_tag
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
-          else
-            TAG="v0.0.0-test-$(date +%s)"
-            echo "No tag detected. Using tag: $TAG"
-            git tag $TAG
-            git push origin $TAG
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
-          fi
-        shell: bash
-
   fetch-ui-artifact:
     runs-on: ubuntu-latest
-    needs: prepare-tag
     outputs:
       artifact_path: ${{ steps.download.outputs.artifact_path }}
     steps:
@@ -55,9 +30,8 @@ jobs:
         id: fetch_artifact
         run: |
           if [ -n "${{ github.event.inputs.ui_version }}" ]; then
-            # Use specific tag if provided
             UI_TAG="${{ github.event.inputs.ui_version }}"
-            ARTIFACT_NAME="wsp-desktop-ui-build-$UI_TAG"
+            ARTIFACT_NAME="wsp-desktop-ui-full-$UI_TAG"
             echo "Fetching specific artifact: $ARTIFACT_NAME"
             gh run list --repo officekube/wsp-desktop-ui --branch "$UI_TAG" --status completed --limit 10 --json databaseId,name,conclusion > runs.json
             echo "Raw gh run list output:"
@@ -68,7 +42,6 @@ jobs:
               exit 1
             fi
           else
-            # Fetch the latest successful artifact
             echo "No UI version specified. Fetching latest successful artifact."
             gh run list --repo officekube/wsp-desktop-ui --status completed --limit 10 --json databaseId,name,conclusion > runs.json
             echo "Raw gh run list output:"
@@ -78,23 +51,12 @@ jobs:
               echo "Error: No successful 'Build and Zip UI' runs found in wsp-desktop-ui"
               exit 1
             fi
-            # Get artifact name from the run
-            gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json jobs > jobs.json
-            echo "Raw jobs output:"
-            cat jobs.json
-            ARTIFACT_NAME=$(jq -r '.jobs[].steps[] | select(.conclusion == "success") | .outputs[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' jobs.json | head -n 1)
-          
-            # If the above approach doesn't find an artifact, try an alternative approach
+            gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json artifacts > artifacts.json
+            echo "Raw artifacts output:"
+            cat artifacts.json
+            ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-full-")) | .name' artifacts.json | head -n 1)
             if [ -z "$ARTIFACT_NAME" ]; then
-              echo "Trying alternative approach to find artifacts..."
-              # List artifacts directly using the run ID
-              gh api repos/officekube/wsp-desktop-ui/actions/runs/$RUN_ID/artifacts > direct_artifacts.json
-              echo "Raw direct artifacts output:"
-              cat direct_artifacts.json
-              ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' direct_artifacts.json | head -n 1)
-            fi
-            if [ -z "$ARTIFACT_NAME" ]; then
-              echo "Error: No artifact named 'wsp-desktop-ui-build-*' found in run $RUN_ID"
+              echo "Error: No artifact named 'wsp-desktop-ui-full-*' found in run $RUN_ID"
               exit 1
             fi
           fi
@@ -108,56 +70,37 @@ jobs:
         id: download
         run: |
           echo "Downloading artifact: ${{ steps.fetch_artifact.outputs.artifact_name }}"
-          # Create download directory
           mkdir -p downloaded-ui
-          
-          # Download the artifact
           gh run download ${{ steps.fetch_artifact.outputs.run_id }} --repo officekube/wsp-desktop-ui --name "${{ steps.fetch_artifact.outputs.artifact_name }}" -D downloaded-ui
-          
-          # Check what was downloaded (verbose listing)
           echo "Contents of downloaded-ui directory:"
           find downloaded-ui -type f | xargs ls -la
-          
-          # Check if the expected zip file exists
-          EXPECTED_PATH="$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-build.zip"
+          EXPECTED_PATH="$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-full.zip"
           if [ -f "$EXPECTED_PATH" ]; then
             echo "Found expected zip file at: $EXPECTED_PATH"
             echo "artifact_path=$EXPECTED_PATH" >> $GITHUB_OUTPUT
           else
             echo "Expected file not found at: $EXPECTED_PATH"
-            # Try to find any zip file
             ZIP_FILE=$(find downloaded-ui -name "*.zip" | head -n 1)
             if [ -n "$ZIP_FILE" ]; then
               echo "Found zip file at: $ZIP_FILE"
               echo "artifact_path=$ZIP_FILE" >> $GITHUB_OUTPUT
             else
               echo "No zip files found in the downloaded artifact"
-              # List everything to see what's actually there
-              find downloaded-ui -type f
-              # If there's any file, use the first one (assuming it might be the build without .zip extension)
-              ANY_FILE=$(find downloaded-ui -type f | head -n 1)
-              if [ -n "$ANY_FILE" ]; then
-                echo "Using this file instead: $ANY_FILE"
-                echo "artifact_path=$ANY_FILE" >> $GITHUB_OUTPUT
-              else
-                echo "No files found in the download. Unable to proceed."
-                exit 1
-              fi
+              exit 1
             fi
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Add this step to upload the artifact for use in other jobs
-      - name: Upload UI Artifact for other jobs
+      - name: Upload UI Artifact for Build
         uses: actions/upload-artifact@v4
         with:
-          name: ui-files
+          name: ui-full-files
           path: ${{ steps.download.outputs.artifact_path }}
           retention-days: 1
 
   build:
-    needs: [ prepare-tag, fetch-ui-artifact ]
+    needs: fetch-ui-artifact
     strategy:
       matrix:
         include:
@@ -165,95 +108,57 @@ jobs:
             arch: x64
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
-
-      - name: Install dependencies
-        run: npm ci
+          node-version: '20.x'  # Match A’s Node version
 
       - name: Download runtimes
         run: npm run download-runtimes
 
-      - name: Download UI files
+      - name: Download UI Full Artifact
         uses: actions/download-artifact@v4
         with:
-          name: ui-files
+          name: ui-full-files
           path: ./ui-files
 
       - name: Extract UI Artifact
-        shell: bash
         run: |
-          # List what we've downloaded
           echo "Contents of ui-files directory:"
           ls -la ui-files
-          
-          # Check file type
-          file ui-files || echo "File command not available"
-          
-          # Extract based on file type
-          if [[ -f ui-files && $(file --mime-type -b ui-files) == "application/zip" ]]; then
-            echo "Downloaded file is a zip file, extracting..."
-            unzip -o ui-files -d ./ui-extracted
-          elif [[ -f ui-files && $(file --mime-type -b ui-files) == "application/gzip" ]]; then
-            echo "Downloaded file is a gzip file, extracting..."
-            mkdir -p ./ui-extracted
-            tar -xzf ui-files -C ./ui-extracted
-          elif [[ -d ui-files ]]; then
-            echo "Downloaded a directory containing files"
-            # Find and extract any zip files
-            ZIP_FILES=$(find ui-files -name "*.zip" 2>/dev/null)
-            if [ -n "$ZIP_FILES" ]; then
-              echo "Found zip files: $ZIP_FILES"
-              mkdir -p ./ui-extracted
-              for zip_file in $ZIP_FILES; do
-                echo "Extracting: $zip_file"
-                unzip -o "$zip_file" -d ./ui-extracted
-              done
-            else
-              echo "No zip files found in ui-files, using files as is"
-              mkdir -p ./ui-extracted
-              cp -r ui-files/* ./ui-extracted/
-            fi
-          else
-            echo "Unknown file type, trying to use as is"
-            mkdir -p ./ui-extracted
-            cp -r ui-files ./ui-extracted/
-          fi
-          
-          echo "Final contents of ui-extracted directory:"
-          ls -la ./ui-extracted
+          unzip -o ui-files/wsp-desktop-ui-full.zip -d .
+          mv artifact/* .  # Move A’s files to root
+          rm -rf artifact ui-files
+          echo "Extracted contents:"
+          ls -la
+        working-directory: .
 
+      - name: Install Dependencies
+        run: npm ci  # Use A’s package.json
 
       - name: Build macOS Intel Installer
         if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-x64
+        run: npm run build-mac-x64  # Use A’s script
 
       - name: Build macOS ARM Installer
         if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac-arm64
+        run: npm run build-mac-arm64  # Use A’s script
 
       - name: Build Windows Installer
         if: matrix.os == 'windows-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-win-x64
+        run: npm run build-win-x64  # Use A’s script
 
       - name: Build Linux Installer
         if: matrix.os == 'ubuntu-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
+        run: npm run release  # Use A’s script
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -270,9 +175,8 @@ jobs:
             dist/*.appimage
           retention-days: 5
 
-
   update-release:
-    needs: [ build, prepare-tag ]
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -311,7 +215,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ needs.prepare-tag.outputs.tag }}
+          tag_name: ${{ needs.fetch-ui-artifact.outputs.artifact_name }}  # Use A’s artifact tag
           files: release-assets/*
           draft: false
           prerelease: false
@@ -322,6 +226,6 @@ jobs:
       - name: Update Release Notes
         run: |
           npm install @octokit/rest
-          RELEASE_TAG=${{ needs.prepare-tag.outputs.tag }} node scripts/update-release.js
+          RELEASE_TAG=${{ needs.fetch-ui-artifact.outputs.artifact_name }} node scripts/update-release.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
