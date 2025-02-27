@@ -57,7 +57,7 @@ jobs:
           if [ -n "${{ github.event.inputs.ui_version }}" ]; then
             # Use specific tag if provided
             UI_TAG="${{ github.event.inputs.ui_version }}"
-            ARTIFACT_NAME="wsp-desktop-ui-build-$UI_TAG"
+            ARTIFACT_NAME="wsp-desktop-ui-full-$UI_TAG"
             echo "Fetching specific artifact: $ARTIFACT_NAME"
             gh run list --repo officekube/wsp-desktop-ui --branch "$UI_TAG" --status completed --limit 10 --json databaseId,name,conclusion > runs.json
             echo "Raw gh run list output:"
@@ -82,7 +82,7 @@ jobs:
             gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json jobs > jobs.json
             echo "Raw jobs output:"
             cat jobs.json
-            ARTIFACT_NAME=$(jq -r '.jobs[].steps[] | select(.conclusion == "success") | .outputs[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' jobs.json | head -n 1)
+            ARTIFACT_NAME=$(jq -r '.jobs[].steps[] | select(.conclusion == "success") | .outputs[] | select(.name | startswith("wsp-desktop-ui-full-")) | .name' jobs.json | head -n 1)
           
             # If the above approach doesn't find an artifact, try an alternative approach
             if [ -z "$ARTIFACT_NAME" ]; then
@@ -91,10 +91,10 @@ jobs:
               gh api repos/officekube/wsp-desktop-ui/actions/runs/$RUN_ID/artifacts > direct_artifacts.json
               echo "Raw direct artifacts output:"
               cat direct_artifacts.json
-              ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-build-")) | .name' direct_artifacts.json | head -n 1)
+              ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-full-")) | .name' direct_artifacts.json | head -n 1)
             fi
             if [ -z "$ARTIFACT_NAME" ]; then
-              echo "Error: No artifact named 'wsp-desktop-ui-build-*' found in run $RUN_ID"
+              echo "Error: No artifact named 'wsp-desktop-ui-full-*' found in run $RUN_ID"
               exit 1
             fi
           fi
@@ -119,7 +119,7 @@ jobs:
           find downloaded-ui -type f | xargs ls -la
           
           # Check if the expected zip file exists
-          EXPECTED_PATH="$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-build.zip"
+          EXPECTED_PATH="$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-full.zip"
           if [ -f "$EXPECTED_PATH" ]; then
             echo "Found expected zip file at: $EXPECTED_PATH"
             echo "artifact_path=$EXPECTED_PATH" >> $GITHUB_OUTPUT
