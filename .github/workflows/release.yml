@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release AI Workspace
 
 on:
   push:
@@ -9,6 +9,12 @@ on:
   pull_request:
     branches:
       - 'feature/**'
+  workflow_dispatch:
+    inputs:
+      ui_version:
+        description: 'UI version (tag) from wsp-desktop-ui (e.g., v1.0.0). Leave blank for latest artifact.'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -25,7 +31,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set Tag Name for Testing
+      - name: Set Tag Name
         id: set_tag
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
@@ -39,8 +45,192 @@ jobs:
           fi
         shell: bash
 
-  build:
+  fetch-ui-artifact:
+    runs-on: ubuntu-latest
     needs: prepare-tag
+    outputs:
+      artifact_path: ${{ steps.download.outputs.artifact_path }}
+    steps:
+      - name: Determine UI Artifact
+        id: fetch_artifact
+        run: |
+          if [ -n "${{ github.event.inputs.ui_version }}" ]; then
+            # Use specific tag if provided
+            UI_TAG="${{ github.event.inputs.ui_version }}"
+            ARTIFACT_NAME="wsp-desktop-ui-full-$UI_TAG"
+            echo "Fetching specific artifact: $ARTIFACT_NAME"
+            gh run list --repo officekube/wsp-desktop-ui --branch "$UI_TAG" --status completed --limit 10 --json databaseId,name,conclusion > runs.json
+            echo "Raw gh run list output:"
+            cat runs.json
+            RUN_ID=$(jq -r '.[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .databaseId' runs.json | head -n 1)
+            if [ -z "$RUN_ID" ]; then
+              echo "Error: No successful 'Build and Zip UI' run found for tag $UI_TAG in wsp-desktop-ui"
+              exit 1
+            fi
+          else
+            # Fetch the latest successful artifact
+            echo "No UI version specified. Fetching latest successful artifact."
+            gh run list --repo officekube/wsp-desktop-ui --status completed --limit 10 --json databaseId,name,conclusion > runs.json
+            echo "Raw gh run list output:"
+            cat runs.json
+            RUN_ID=$(jq -r '.[] | select(.name == "Build and Zip UI" and .conclusion == "success") | .databaseId' runs.json | head -n 1)
+            if [ -z "$RUN_ID" ]; then
+              echo "Error: No successful 'Build and Zip UI' runs found in wsp-desktop-ui"
+              exit 1
+            fi
+            # Get artifact name from the run
+            gh run view $RUN_ID --repo officekube/wsp-desktop-ui --json jobs > jobs.json
+            echo "Raw jobs output:"
+            cat jobs.json
+            ARTIFACT_NAME=$(jq -r '.jobs[].steps[] | select(.conclusion == "success") | .outputs[] | select(.name | startswith("wsp-desktop-ui-full-")) | .name' jobs.json | head -n 1)
+          
+            # If the above approach doesn't find an artifact, try an alternative approach
+            if [ -z "$ARTIFACT_NAME" ]; then
+              echo "Trying alternative approach to find artifacts..."
+              # List artifacts directly using the run ID
+              gh api repos/officekube/wsp-desktop-ui/actions/runs/$RUN_ID/artifacts > direct_artifacts.json
+              echo "Raw direct artifacts output:"
+              cat direct_artifacts.json
+              ARTIFACT_NAME=$(jq -r '.artifacts[] | select(.name | startswith("wsp-desktop-ui-full-")) | .name' direct_artifacts.json | head -n 1)
+            fi
+            if [ -z "$ARTIFACT_NAME" ]; then
+              echo "Error: No artifact named 'wsp-desktop-ui-full-*' found in run $RUN_ID"
+              exit 1
+            fi
+          fi
+          echo "Selected artifact: $ARTIFACT_NAME"
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download UI Artifact
+        id: download
+        run: |
+          echo "Downloading artifact: ${{ steps.fetch_artifact.outputs.artifact_name }}"
+          # Create download directory
+          mkdir -p downloaded-ui
+          
+          # Download the artifact
+          gh run download ${{ steps.fetch_artifact.outputs.run_id }} --repo officekube/wsp-desktop-ui --name "${{ steps.fetch_artifact.outputs.artifact_name }}" -D downloaded-ui
+          
+          # Check what was downloaded (verbose listing)
+          echo "Contents of downloaded-ui directory:"
+          find downloaded-ui -type f | xargs ls -la
+          
+          # Check if the expected zip file exists
+          EXPECTED_PATH="$(pwd)/downloaded-ui/${{ steps.fetch_artifact.outputs.artifact_name }}/wsp-desktop-ui-full.zip"
+          if [ -f "$EXPECTED_PATH" ]; then
+            echo "Found expected zip file at: $EXPECTED_PATH"
+            echo "artifact_path=$EXPECTED_PATH" >> $GITHUB_OUTPUT
+          else
+            echo "Expected file not found at: $EXPECTED_PATH"
+            # Try to find any zip file
+            ZIP_FILE=$(find downloaded-ui -name "*.zip" | head -n 1)
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Found zip file at: $ZIP_FILE"
+              echo "artifact_path=$ZIP_FILE" >> $GITHUB_OUTPUT
+            else
+              echo "No zip files found in the downloaded artifact"
+              # List everything to see what's actually there
+              find downloaded-ui -type f
+              # If there's any file, use the first one (assuming it might be the build without .zip extension)
+              ANY_FILE=$(find downloaded-ui -type f | head -n 1)
+              if [ -n "$ANY_FILE" ]; then
+                echo "Using this file instead: $ANY_FILE"
+                echo "artifact_path=$ANY_FILE" >> $GITHUB_OUTPUT
+              else
+                echo "No files found in the download. Unable to proceed."
+                exit 1
+              fi
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Add this step to upload the artifact for use in other jobs
+      - name: Upload UI Artifact for other jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-files
+          path: ${{ steps.download.outputs.artifact_path }}
+          retention-days: 1
+
+  extract-ui:
+    needs: [fetch-ui-artifact]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download UI files
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-files
+          path: ./ui-files
+
+      - name: Extract UI Artifact
+        run: |
+          echo "Contents of ui-files directory:"
+          ls -la ui-files
+          
+          # Create an extraction directory
+          mkdir -p extracted
+          
+          # Check if we have a single file or a directory
+          if [ -f ui-files ] || [ "$(ls -A ui-files | wc -l)" -eq "1" -a -f "$(ls -A ui-files | head -n 1)" ]; then
+            # We have a single file, likely the zip
+            ZIPFILE=$([ -f ui-files ] && echo "ui-files" || echo "$(ls -A ui-files | head -n 1)")
+            ZIPFILE_FULL_PATH=$([ -f ui-files ] && echo "$(pwd)/ui-files" || echo "$(pwd)/ui-files/$(ls -A ui-files | head -n 1)")
+            echo "Found a single file: $ZIPFILE_FULL_PATH"
+            
+            # Try to unzip it
+            if file "$ZIPFILE_FULL_PATH" | grep -q "Zip archive data"; then
+              echo "File is a zip archive, extracting..."
+              unzip -o "$ZIPFILE_FULL_PATH" -d ./extracted
+            else
+              echo "File doesn't appear to be a zip archive. Trying unzip anyway..."
+              unzip -o "$ZIPFILE_FULL_PATH" -d ./extracted || echo "Unzip failed, file may not be a zip"
+            fi
+          else
+            # We have a directory structure
+            echo "Found directory structure, looking for zip files..."
+            ZIPFILE=$(find ui-files -name "*.zip" | head -n 1)
+            
+            if [ -n "$ZIPFILE" ]; then
+              echo "Found zip file: $ZIPFILE"
+              unzip -o "$ZIPFILE" -d ./extracted
+            else
+              echo "No zip files found. Using files as is."
+              cp -r ui-files/* ./extracted/
+            fi
+          fi
+          
+          # Check what was extracted
+          echo "Contents of extraction directory:"
+          find ./extracted -type f | sort
+          
+          # Handle nested artifact directories if they exist
+          if [ -d "./extracted/artifact" ]; then
+            echo "Found nested artifact directory, moving contents up"
+            mkdir -p ./extracted-final
+            mv ./extracted/artifact/* ./extracted-final/
+            rm -rf ./extracted
+            mv ./extracted-final ./extracted
+          fi
+          
+          # Cleanup unnecessary files
+          rm -rf ./ui-files
+          
+          echo "Final contents of extracted directory:"
+          find ./extracted -type f | sort
+
+      - name: Upload extracted artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: extracted-ui
+          path: ./extracted
+          retention-days: 1
+
+  build:
+    needs: [prepare-tag, extract-ui]
     strategy:
       matrix:
         include:
@@ -62,13 +252,51 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '20.x'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Download runtimes
         run: npm run download-runtimes
+
+      - name: Download extracted UI files
+        uses: actions/download-artifact@v4
+        with:
+          name: extracted-ui
+          path: ./extracted-ui
+
+      - name: Setup extracted UI files (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          echo "Contents of extracted-ui directory:"
+          ls -la ./extracted-ui
+          
+          # Copy extracted UI files to the expected location for building
+          cp -r ./extracted-ui/* ./
+
+          # Cleanup
+          rm -rf ./extracted-ui
+          
+          echo "Final contents of working directory after copying UI files:"
+          ls -la
+
+      - name: Setup extracted UI files (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          echo "Contents of extracted-ui directory:"
+          Get-ChildItem -Path ./extracted-ui -Force
+          
+          # Copy extracted UI files to the expected location for building
+          Copy-Item -Path "./extracted-ui/*" -Destination "./" -Recurse -Force
+
+          # Cleanup
+          Remove-Item -Path "./extracted-ui" -Recurse -Force
+          
+          echo "Final contents of working directory after copying UI files:"
+          Get-ChildItem -Path ./ -Force
 
       - name: Build macOS Intel Installer
         if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
@@ -94,33 +322,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
 
-      - name: Upload Build MacOs Artifact
-        if: matrix.os == 'macos-latest'
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             dist/*.dmg
             dist/*.pkg
-          retention-days: 5
-
-      - name: Upload Build Windows Artifact
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
             dist/*.exe
             dist/*.msi
-          retention-days: 5
-
-      - name: Upload Build Linux Artifact
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/*.deb 
+            dist/*.deb
             dist/*.rpm
             dist/*.AppImage
             dist/*.appimage
@@ -141,81 +352,27 @@ jobs:
           path: downloaded-artifacts
           merge-multiple: false
 
-      - name: Debug Artifacts
-        run: |
-          echo "Contents of current directory:"
-          ls -R
-          echo "\nContents of downloaded-artifacts directory:"
-          ls -R downloaded-artifacts/
-
       - name: Consolidate Artifacts
         shell: bash
         run: |
           mkdir -p release-assets
-          
-          echo "Available artifacts:"
-          ls -la downloaded-artifacts/
-          
           for platform_dir in downloaded-artifacts/*; do
             if [ -d "$platform_dir" ]; then
               platform=$(basename "$platform_dir")
-              echo "Processing platform directory: $platform"
-              
-              # List contents of platform directory
-              echo "Contents of $platform directory:"
-              ls -la "$platform_dir"
-              
-              # Process files based on platform type
               case "$platform" in
                 *"windows"*)
-                  echo "Processing Windows artifacts..."
                   find "$platform_dir" -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp -v {} release-assets/ \;
                   ;;
-                  
                 *"macos"*)
-                  echo "Processing macOS artifacts..."
                   find "$platform_dir" -type f \( -name "*.dmg" -o -name "*.pkg" \) -exec cp -v {} release-assets/ \;
                   ;;
-                  
                 *"ubuntu"* | *"linux"*)
-                  echo "Processing Linux artifacts..."
                   find "$platform_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.appimage" \) -exec cp -v {} release-assets/ \;
-                  
-                  # If no specific package files found, try copying all executable files
-                  if [ ! "$(ls -A release-assets/)" ]; then
-                    echo "No specific package files found, copying all executable files..."
-                    find "$platform_dir" -type f -executable -exec cp -v {} release-assets/ \;
-                  fi
                   ;;
               esac
             fi
           done
-          
-          echo "Final contents of release-assets:"
           ls -la release-assets/
-          
-          # Verify we have files
-          if [ -z "$(ls -A release-assets/)" ]; then
-            echo "Error: No files were copied to release-assets!"
-            echo "Copying all files as fallback..."
-            find downloaded-artifacts -type f -exec cp -v {} release-assets/ \;
-          fi
-
-      - name: Clean up Existing Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ needs.prepare-tag.outputs.tag }}"
-          echo "Cleaning up release for tag $TAG..."
-          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-            | jq -r '.id')
-          if [ "$RELEASE_ID" != "null" ]; then
-            echo "Deleting existing release..."
-            curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
-            sleep 2
-          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -225,7 +382,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          fail_on_unmatched_files: false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
